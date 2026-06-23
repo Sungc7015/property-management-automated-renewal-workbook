@@ -134,9 +134,9 @@ Click **Display** to run the report.
 | Report | Renewal Offer Analysis Report |
 | Property | Select your property |
 | Date Range | Full month you are generating renewal offers for (e.g., 06/01/2026 to 06/30/2026) |
-| Format | XLS |
+| Format | `.csv` |
 
-Click **View Report** or **Save Report** to download.
+Select **`.csv`** as the format, then click **View Report** or **Save Report** to download. The import wizard filters for `.csv` files — an `.xls` or `.xlsx` export will not appear in the file picker.
 
 ![RealPage Asset Optimization → Reports → Renewal Offer Analysis Report](screenshots/realpage-renewal-offer-settings.png)
 
@@ -180,7 +180,7 @@ Click **View Report** or **Save Report** to download.
 | 1 | Rent Roll | Yardi Voyager 7S | `.xlsx` | **Yes** |
 | 2 | Unit Statistics | Yardi Voyager 7S | `.xlsx` | Recommended |
 | 3 | Resident Activity Detail | Yardi CRM | `.xls` | Recommended |
-| 4 | Renewal Offer Analysis | RealPage | `.xls` | Recommended |
+| 4 | Renewal Offer Analysis | RealPage | `.csv` | Recommended |
 | 5 | Unit Rents Grid | AIRM | `.xlsx` | Recommended |
 
 Export all five reports for the same month before starting the import. The import wizard walks you through file selection one at a time — click **Cancel** on any file you don't have to skip it.

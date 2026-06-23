@@ -1,0 +1,16 @@
+# Excel workbook files — never commit live workbooks (they contain tenant data)
+*.xlsm
+*.xlsx
+*.xls
+*.xlam
+*.xlsb
+
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Excel temp files
+~$*.xlsx
+~$*.xlsm
+~$*.xls

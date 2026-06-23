@@ -184,11 +184,13 @@ s1b      Studio
 2b       2 Bedroom
 ```
 
-> **Important:** If a unit's Yardi code is not in this map, the unit is skipped during import and its code appears in the "Unmapped Yardi Codes" warning at the end of the import. Add the missing code to the map and re-import.
+> **Important:** The Setup sheet is pre-filled with example floor plan names and Yardi codes from a sample property. **Replace all of this example data entirely** — every floor plan group name, every Yardi code, and every floor plan mapping — before running your first import. Using the example codes will cause all of your real units to be flagged as unmapped.
+
+> If a unit's Yardi code is not in this map after you've set it up, the unit is skipped during import and its code appears in the "Unmapped Yardi Codes" warning at the end of the import. Add the missing code to the map and re-import.
 
 #### Section D – Column Fallbacks
 
-The Yardi Rent Roll reader always uses the column numbers configured here — it does not attempt header detection. The RealPage readers (Renewal Offer Analysis, Unit Rents Grid, Move-in Box Score) auto-detect columns by header name first and only fall back to these numbers when a header is not found.
+The Yardi Rent Roll reader always uses the column numbers configured here — it does not attempt header detection. The **Unit Rents Grid** and **Move-in Box Score** readers auto-detect columns by header name first and only fall back to these numbers when a header is not found. The **Renewal Offer Analysis** (`.csv`) relies entirely on header detection and has no configurable column fallbacks — if its headers are not recognized, that file will be silently skipped with no data imported.
 
 Set these to match your actual report layouts. Only change them if you see import failures or blank columns after import.
 
@@ -216,14 +218,22 @@ After filling out the setup sheet, run **Health Check** (see [Health Check](#hea
 
 ### Step 6 – Generate Month Sheets
 
-Click **Generate Month Sheets**. Enter the year when prompted. The system creates 12 tab sheets (one per month, named `Jan 27`, `Feb 27`, etc.) with:
+Click **Generate Month Sheets**. You will be prompted three times:
+
+1. **Which month(s):** Enter a single month number (`6`), a range (`1-6`), a comma-separated list (`1,4,7`), or `ALL` to generate all 12 sheets at once.
+2. **Year:** Enter the 4-digit year (e.g., `2027`).
+3. **Empty rows per section (optional):** Press Enter to use your configured Buffer Rows value, or enter a number to override for this run only. Useful when back-filling historical months that need fewer rows.
+
+The system creates the requested month sheets (named `Jan 27`, `Feb 27`, etc.) with:
 
 - A title row with the property name and month/year
 - Section headers (grey bars) for each floor plan group you defined
 - Pre-built formulas for renewal calculations
 - Buffer rows below each section for new units
 
-> Run this once per year. If sheets for some months already exist, they are skipped.
+> Run this once per year. If a sheet for a requested month already exists, you will be prompted whether to replace it (**all existing data on that sheet will be lost if you choose Yes**) or keep it.
+
+> **Note:** Generate Month Sheets also refreshes the Overview sheet automatically after completing. You do not need to click Create Overview separately afterward.
 
 ---
 
@@ -252,7 +262,7 @@ Each month you will import up to 5 files. Only the Yardi Rent Roll is required; 
 | 2 | **Yardi Unit Statistics** | Yardi | `.xlsx` | Occupied average rent by floor plan (col L) and inplace lease average (col X) |
 | 3 | **RealPage Renewal Offer Analysis** | RealPage | `.csv` | YieldStar recommended increase (col F) and current lease term (col T) — used as fallback when the Unit Rents Grid is not provided |
 | 4 | **Unit Rents Grid** | RealPage | `.xlsx` | YieldStar recommended increase (col F), new lease rent (col N), current lease term (col T), best offer term (col U). **Preferred over the RP csv for cols F and T.** |
-| 5 | **Move-in Box Score** | RealPage / Yardi | `.xls` | 3-month average effective rent for recent move-ins by floor plan (col M). **Must be a clean RealPage export — files containing VBA macros are rejected automatically.** |
+| 5 | **Move-in Box Score** | Yardi CRM | `.xls` | 3-month average effective rent for recent move-ins by floor plan (col M). Pulled from the Resident Activity Detail drill-down in the Yardi CRM Box Score Summary — see [PULLING_REPORTS.md](PULLING_REPORTS.md) for step-by-step instructions. **Files containing VBA macros are rejected automatically.** |
 
 > **Tip:** Export all reports for the same month before starting the import. The import wizard walks you through file selection one at a time — click Cancel on any file you don't have to skip it.
 
@@ -297,6 +307,7 @@ Review and spot-check the other imported columns, particularly:
 
 | Col | Letter | Field | Source |
 |---|---|---|---|
+| 1 | A | **Renewal Status** | **Manual entry** — dropdown: `Renewed`, `MTM`, `NTV` (Notice to Vacate), `Pending`. Drives row color (green = Renewed, pink = NTV, blue = MTM) and all Overview metrics (renewal count, signed revenue, capture ratio). This is the primary field you fill each month. |
 | 2 | B | Apt # (Unit Number) | Yardi Rent Roll |
 | 3 | C | Resident Name | Yardi Rent Roll |
 | 4 | D | Floor Plan (Yardi Code) | Yardi Rent Roll |
@@ -311,7 +322,7 @@ Review and spot-check the other imported columns, particularly:
 | 16 | P | Lease Expiry Date | Yardi Rent Roll |
 | 20 | T | Current Lease Term (months) | Unit Rents Grid (preferred) or RP Renewal Offer Analysis |
 | 21 | U | Recommended Lease Term / Notes | Unit Rents Grid (best offer term) |
-| 24 | X | Inplace Lease Avg | Yardi Unit Statistics |
+| 24 | X | Inplace Lease Avg | Yardi Unit Statistics (currently receives the same weighted average as col L) |
 
 ---
 
@@ -415,7 +426,7 @@ The import found unit type codes in the Rent Roll that are not in your Yardi Cod
 Go to **File → Options → Trust Center → Trust Center Settings → Macro Settings** and enable "Trust access to the VBA project object model". Re-run `SetupWorkbook`.
 
 ### Import crashes with "merged cell" error
-This was a known bug fixed in v2.0.0. Ensure you are running version 2.1.0 (check the Health Check output). If the error recurs on a specific sheet, the sheet may have manually created multi-row merged cells outside the standard layout. Unmerge them manually and re-run the import.
+This was a known bug fixed in v2.0.0. Ensure you are running version 2.1.0 or later (check the Health Check output). If the error recurs on a specific sheet, the sheet may have manually created multi-row merged cells outside the standard layout. Unmerge them manually and re-run the import.
 
 ### Overview shows blank cells for a month
 The month sheet exists but its stats named ranges were not created (e.g., the sheet was manually added rather than generated). Delete the sheet and regenerate it using **Generate Month Sheets**, then re-import that month's data.
