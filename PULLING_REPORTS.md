@@ -24,7 +24,7 @@ This guide covers where to find and export each of the five source reports the w
 
 | Field | Value |
 |---|---|
-| Property | Enter your property code (e.g., `p0000039`) |
+| Property | Enter your property code |
 | From | First day of the current month (may be greyed out — if so, leave it) |
 | To | Today's date |
 | Month / Year | Confirm this reflects the current accounting period |
@@ -54,7 +54,7 @@ Same path as the Rent Roll Report:
 
 | Field | Value |
 |---|---|
-| Property | Enter your property code (e.g., `p0000039`) |
+| Property | Enter your property code |
 | From | First day of the current month (may be greyed out — if so, leave it) |
 | To | Today's date |
 | Month / Year | Confirm the current accounting period |
@@ -88,7 +88,7 @@ Click the **Excel** button to download.
 
 | Field | Value |
 |---|---|
-| Property | Select your property (e.g., Fountainglen at Laguna Niguel) |
+| Property | Select your property |
 | From | 3 months ago from today |
 | To | Today's date |
 | Summary Type | Property |
@@ -132,7 +132,7 @@ Click **Display** to run the report.
 | Field | Value |
 |---|---|
 | Report | Renewal Offer Analysis Report |
-| Property | Select your property (e.g., Fountainglen At Laguna Niguel) |
+| Property | Select your property |
 | Date Range | Full month you are generating renewal offers for (e.g., 06/01/2026 to 06/30/2026) |
 | Format | XLS |
 
