@@ -16,6 +16,8 @@ This guide covers where to find and export each of the five source reports the w
 2. Hover over **Residential**
 3. Select **Residential Analytics** from the flyout menu
 
+![Yardi navigation — Analytics → Residential → Residential Analytics](screenshots/yardi-navigation.png)
+
 > Navigation: Analytics → Residential → Residential Analytics
 
 ### Settings
@@ -30,6 +32,8 @@ This guide covers where to find and export each of the five source reports the w
 | Summarize By | Unit |
 
 Click the **Excel** button to download.
+
+![Rent Roll report settings — click Excel to export](screenshots/rent-roll-settings.png)
 
 > ⚠️ The **From** date field may be greyed out on some properties — this is expected. Set the **To** date and proceed.  
 > Always confirm the accounting period matches the current month before exporting.
@@ -59,6 +63,8 @@ Same path as the Rent Roll Report:
 
 Click the **Excel** button to download.
 
+![Unit Statistics report settings — click Excel to export](screenshots/unit-statistics-settings.png)
+
 > ⚠️ The **From** date field may be greyed out on some properties — this is expected. Set the **To** date and proceed.  
 > Change only the **Report Type** and **Summarize By** fields from the Rent Roll settings above.
 
@@ -74,6 +80,8 @@ Click the **Excel** button to download.
 2. Hover over **Residential** in the left menu
 3. Select **Box Score Summary** from the list
 
+![Box Score Summary navigation](screenshots/box-score-navigation.png)
+
 > Navigation: Reports → Residential → Box Score Summary
 
 ### Step 2: Configure Settings
@@ -87,6 +95,8 @@ Click the **Excel** button to download.
 
 Click **Display** to run the report.
 
+![Box Score Summary settings — 3-month date range](screenshots/box-score-settings.png)
+
 > ⚠️ This report uses a 3-month lookback window. The **From** date must be exactly 3 months prior to today.
 
 ### Step 3: Click the Rented Number
@@ -95,10 +105,14 @@ Click **Display** to run the report.
 2. Find the **Rented** column and click the blue hyperlinked number (e.g., 28)
 3. This opens the **Resident Activity Detail** drill-down
 
+![Resident Activity section — click the Rented number to drill down](screenshots/resident-activity-rented.png)
+
 ### Step 4: Export to Excel
 
 1. On the Resident Activity Detail page, confirm the property and date range are correct
 2. Click the **green Excel icon** to download
+
+![Resident Activity Detail — click the green Excel icon to export](screenshots/resident-activity-excel-export.png)
 
 > ⚠️ There are two export icons on this page — select the **green Excel icon**, not the red PDF icon.
 
@@ -123,6 +137,8 @@ Click **Display** to run the report.
 | Format | XLS |
 
 Click **View Report** or **Save Report** to download.
+
+![RealPage Asset Optimization → Reports → Renewal Offer Analysis Report](screenshots/realpage-renewal-offer-settings.png)
 
 > ⚠️ Set the date range to the **month you are generating renewal offers for** — not the current month.
 
@@ -152,6 +168,8 @@ Click **View Report** or **Save Report** to download.
 1. Once the expirations load, locate the **download icon** in the bottom-right area of the screen (arrow pointing down)
 2. Click the download icon to export
 3. The file downloads as the **Unit Rents Grid** in `.xlsx` format
+
+![AIRM Renewal Lease Workflow — click the download icon (bottom right) to export](screenshots/airm-unit-rents-grid.png)
 
 ---
 
