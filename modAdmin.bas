@@ -1,4 +1,3 @@
-Attribute VB_Name = "modAdmin"
 Option Explicit
 
 ' ================================================================
@@ -27,27 +26,27 @@ Public Sub SetupWorkbook()
     On Error GoTo NoTrust
     For Each vbc In ThisWorkbook.VBProject.VBComponents
         Select Case vbc.Name
-            Case "modConfig":    hasConfig   = True
-            Case "modSheetUtils": hasSheetU  = True
-            Case "modReaders":   hasReaders  = True
-            Case "modImport":    hasImport   = True
-            Case "modDynamic":   hasDynamic  = True
-            Case "modSetup":     hasSetup    = True
+            Case "modConfig":    hasConfig = True
+            Case "modSheetUtils": hasSheetU = True
+            Case "modReaders":   hasReaders = True
+            Case "modImport":    hasImport = True
+            Case "modDynamic":   hasDynamic = True
+            Case "modSetup":     hasSetup = True
             Case "modOverview":  hasOverview = True
-            Case "modAdmin":     hasAdmin    = True
+            Case "modAdmin":     hasAdmin = True
         End Select
     Next vbc
     On Error GoTo 0
 
     Dim missing As String: missing = ""
-    If Not hasConfig   Then missing = missing & "  modConfig.bas" & vbCrLf
-    If Not hasSheetU   Then missing = missing & "  modSheetUtils.bas" & vbCrLf
-    If Not hasReaders  Then missing = missing & "  modReaders.bas" & vbCrLf
-    If Not hasImport   Then missing = missing & "  modImport.bas" & vbCrLf
-    If Not hasDynamic  Then missing = missing & "  modDynamic.bas" & vbCrLf
-    If Not hasSetup    Then missing = missing & "  modSetup.bas" & vbCrLf
+    If Not hasConfig Then missing = missing & "  modConfig.bas" & vbCrLf
+    If Not hasSheetU Then missing = missing & "  modSheetUtils.bas" & vbCrLf
+    If Not hasReaders Then missing = missing & "  modReaders.bas" & vbCrLf
+    If Not hasImport Then missing = missing & "  modImport.bas" & vbCrLf
+    If Not hasDynamic Then missing = missing & "  modDynamic.bas" & vbCrLf
+    If Not hasSetup Then missing = missing & "  modSetup.bas" & vbCrLf
     If Not hasOverview Then missing = missing & "  modOverview.bas" & vbCrLf
-    If Not hasAdmin    Then missing = missing & "  modAdmin.bas" & vbCrLf
+    If Not hasAdmin Then missing = missing & "  modAdmin.bas" & vbCrLf
 
     If missing <> "" Then
         MsgBox "These modules must be imported before running Setup:" & vbCrLf & missing & vbCrLf & _
@@ -68,15 +67,18 @@ Public Sub SetupWorkbook()
 
     Dim ovWS As Worksheet: Set ovWS = ThisWorkbook.Sheets(ovName)
 
-    AddButton ovWS, "btn_ImportMonthly",  "Import Monthly Data",    10,  5, "modImport.ImportMonthlyData"
-    AddButton ovWS, "btn_GenerateSheets", "Generate Month Sheets",  180, 5, "modSetup.GenerateMonthSheets"
-    AddButton ovWS, "btn_SetupSheet",     "Create Setup Sheet",     350, 5, "modSetup.CreateSetupSheet"
-    AddButton ovWS, "btn_Overview",       "Create Overview",        520, 5, "modOverview.CreateOverviewSheet"
-    AddButton ovWS, "btn_HealthCheck",    "Health Check",           690, 5, "modAdmin.HealthCheck"
+    AddButton ovWS, "btn_ImportMonthly", "Import Monthly Data", 10, 5, "modImport.ImportMonthlyData"
+    AddButton ovWS, "btn_GenerateSheets", "Generate Month Sheets", 180, 5, "modSetup.GenerateMonthSheets"
+    AddButton ovWS, "btn_SetupSheet", "Create Setup Sheet", 350, 5, "modSetup.CreateSetupSheet"
+    AddButton ovWS, "btn_Overview", "Create Overview", 520, 5, "modOverview.CreateOverviewSheet"
+    AddButton ovWS, "btn_HealthCheck", "Health Check", 690, 5, "modAdmin.HealthCheck"
+
+    RefreshBufferCache
 
     On Error Resume Next
+    ThisWorkbook.BuiltinDocumentProperties("Author").Value = "Christopher Sung"
     ThisWorkbook.BuiltinDocumentProperties("Comments").Value = _
-        "Property renewal workbook system, version " & VER & "."
+        "Property renewal workbook system, version " & VER & ", created by Christopher Sung."
     On Error GoTo 0
 
     MsgBox "Setup complete!  (version " & VER & ")" & vbCrLf & vbCrLf & _
@@ -101,7 +103,7 @@ Private Sub AddButton(ws As Worksheet, btnName As String, caption As String, _
     Next shp
     Dim btn As Shape
     Set btn = ws.Shapes.AddShape(msoShapeRoundedRectangle, _
-                                  Left:=leftPos, Top:=topPos, Width:=160, Height:=24)
+                                  Left:=leftPos, top:=topPos, Width:=160, Height:=24)
     With btn
         .Name = btnName
         .TextFrame.Characters.Text = caption
@@ -162,9 +164,7 @@ Public Sub HealthCheck()
     Dim brokenN As String: brokenN = ""
     Dim nm As Object
     For Each nm In ThisWorkbook.Names
-        Dim ref As String: ref = ""
-        On Error Resume Next: ref = nm.RefersTo: On Error GoTo 0
-        If InStr(ref, "#REF") > 0 Then
+        If InStr(nm.RefersTo, "#REF") > 0 Then
             brokenN = brokenN & "  " & nm.Name & vbCrLf
             issues = issues + 1
         End If

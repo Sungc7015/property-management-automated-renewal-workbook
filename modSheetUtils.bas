@@ -1,4 +1,3 @@
-Attribute VB_Name = "modSheetUtils"
 Option Explicit
 
 ' ================================================================
@@ -154,7 +153,7 @@ End Function
 '      merged cell" crash on PasteFormulas.
 Public Sub UnmergeMultiRowMerges(ws As Worksheet, r As Long)
     Dim c As Long
-    For c = 1 To MAX_COL
+    For c = 1 To 28
         Dim cel As Range: Set cel = ws.Cells(r, c)
         If cel.MergeCells Then cel.MergeArea.UnMerge
     Next c

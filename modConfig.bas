@@ -1,4 +1,3 @@
-Attribute VB_Name = "modConfig"
 Option Explicit
 
 ' ================================================================
@@ -14,13 +13,8 @@ Option Explicit
 Public Const VER As String = "2.1.0  (2026-06-21)"
 
 Public Const SETUP_SHEET As String = "Property Setup"
-Public Const BAR_GREY    As Long   = 14277081   ' RGB(217,217,217)
-Public Const INPUT_FILL  As Long   = 13431551   ' RGB(255,242,204)
-
-Public Const MAX_GROUPS   As Long = 50
-Public Const MAX_CODES    As Long = 200
-Public Const MAX_COL      As Long = 28
-Public Const MAX_FALLBACKS As Long = 31
+Public Const BAR_GREY    As Long = 14277081     ' RGB(217,217,217)
+Public Const INPUT_FILL  As Long = 13431551     ' RGB(255,242,204)
 
 ' ----------------------------------------------------------------
 '  PROPERTY CONFIG TYPE  -  shared by all modules
@@ -75,10 +69,10 @@ Public Function LoadConfig(cfg As PropConfig, Optional showErrors As Boolean = T
 
     On Error GoTo BadConfig
 
-    cfg.FullName   = Trim(CStr(NmRange("PS.PropertyName").Value))
-    cfg.ShortName  = Trim(CStr(NmRange("PS.ShortName").Value))
-    cfg.yr         = CLng(NmRange("PS.Year").Value)
-    cfg.MTMCap     = CDbl(NmRange("PS.MTMCap").Value)
+    cfg.FullName = Trim(CStr(NmRange("PS.PropertyName").Value))
+    cfg.ShortName = Trim(CStr(NmRange("PS.ShortName").Value))
+    cfg.yr = CLng(NmRange("PS.Year").Value)
+    cfg.MTMCap = CDbl(NmRange("PS.MTMCap").Value)
     cfg.MTMThrough = CDate(NmRange("PS.MTMThrough").Value)
     cfg.BufferRows = CLng(NmRange("PS.BufferRows").Value)
 
@@ -98,9 +92,9 @@ Public Function LoadConfig(cfg As PropConfig, Optional showErrors As Boolean = T
     Dim top As Range: Set top = NmRange("PS.GroupsTop")
     Dim r As Long: r = top.Row
     Dim cnt As Long: cnt = 0
-    ReDim cfg.GroupNames(MAX_GROUPS - 1)
+    ReDim cfg.GroupNames(49)
     Do While Trim(CStr(ws.Cells(r, top.Column).Value)) <> ""
-        If cnt > MAX_GROUPS - 1 Then Exit Do
+        If cnt > 49 Then Exit Do
         cfg.GroupNames(cnt) = Trim(CStr(ws.Cells(r, top.Column).Value))
         cnt = cnt + 1: r = r + 1
     Loop
@@ -108,9 +102,9 @@ Public Function LoadConfig(cfg As PropConfig, Optional showErrors As Boolean = T
 
     Set top = NmRange("PS.CodesTop")
     r = top.Row: cnt = 0
-    ReDim cfg.codes(MAX_CODES - 1): ReDim cfg.CodeGroupIdx(MAX_CODES - 1)
+    ReDim cfg.codes(199): ReDim cfg.CodeGroupIdx(199)
     Do While Trim(CStr(ws.Cells(r, top.Column).Value)) <> ""
-        If cnt > MAX_CODES - 1 Then Exit Do
+        If cnt > 199 Then Exit Do
         Dim cd As String, gp As String
         cd = LCase(Trim(CStr(ws.Cells(r, top.Column).Value)))
         gp = Trim(CStr(ws.Cells(r, top.Column + 1).Value))
@@ -135,37 +129,37 @@ Public Function LoadConfig(cfg As PropConfig, Optional showErrors As Boolean = T
     cfg.CodeCount = cnt
 
     Set top = NmRange("PS.FallbacksTop")
-    For r = top.Row To top.Row + MAX_FALLBACKS - 1
+    For r = top.Row To top.Row + 30
         Dim lbl As String: lbl = LCase(Trim(CStr(ws.Cells(r, top.Column).Value)))
         If lbl = "" Then Exit For
         Dim v As Long: v = 0
         If IsNumeric(ws.Cells(r, top.Column + 1).Value) Then v = CLng(ws.Cells(r, top.Column + 1).Value)
         Select Case lbl
-            Case "rent roll: unit col":          cfg.RRUnit    = v
-            Case "rent roll: unit type col":     cfg.RRType    = v
-            Case "rent roll: resident col":      cfg.RRName    = v
-            Case "rent roll: market rent col":   cfg.RRMarket  = v
-            Case "rent roll: actual rent col":   cfg.RRActual  = v
-            Case "rent roll: lease expiry col":  cfg.RRExpiry  = v
-            Case "rents grid: unit col":         cfg.GridUnit  = v
+            Case "rent roll: unit col":          cfg.RRUnit = v
+            Case "rent roll: unit type col":     cfg.RRType = v
+            Case "rent roll: resident col":      cfg.RRName = v
+            Case "rent roll: market rent col":   cfg.RRMarket = v
+            Case "rent roll: actual rent col":   cfg.RRActual = v
+            Case "rent roll: lease expiry col":  cfg.RRExpiry = v
+            Case "rents grid: unit col":         cfg.GridUnit = v
             Case "rents grid: cur eff rent col": cfg.GridCurEff = v
-            Case "rents grid: best offer col":   cfg.GridBest  = v
+            Case "rents grid: best offer col":   cfg.GridBest = v
             Case "rents grid: best term col":    cfg.GridBestTerm = v
             Case "rents grid: new lease col":    cfg.GridNewLease = v
-            Case "box score: unit col":          cfg.MIUnit    = v
+            Case "box score: unit col":          cfg.MIUnit = v
             Case "box score: unit type col":     cfg.MIUnitType = v
-            Case "box score: rent col":          cfg.MIRent    = v
-            Case "box score: move-in col":       cfg.MIMoveIn  = v
+            Case "box score: rent col":          cfg.MIRent = v
+            Case "box score: move-in col":       cfg.MIMoveIn = v
         End Select
     Next r
 
     Dim msg As String: msg = ""
-    If cfg.FullName = ""      Then msg = msg & "- Property Full Name is blank" & vbCrLf
-    If cfg.GroupCount = 0     Then msg = msg & "- No floor plan groups listed" & vbCrLf
-    If cfg.CodeCount = 0      Then msg = msg & "- No Yardi codes listed" & vbCrLf
-    If cfg.PatternCount = 0   Then msg = msg & "- No unit number pattern" & vbCrLf
-    If cfg.BufferRows < 1     Then msg = msg & "- Buffer Rows must be at least 1" & vbCrLf
-    If cfg.MTMCap <= 0        Then msg = msg & "- MTM Cap % is blank or zero" & vbCrLf
+    If cfg.FullName = "" Then msg = msg & "- Property Full Name is blank" & vbCrLf
+    If cfg.GroupCount = 0 Then msg = msg & "- No floor plan groups listed" & vbCrLf
+    If cfg.CodeCount = 0 Then msg = msg & "- No Yardi codes listed" & vbCrLf
+    If cfg.PatternCount = 0 Then msg = msg & "- No unit number pattern" & vbCrLf
+    If cfg.BufferRows < 1 Then msg = msg & "- Buffer Rows must be at least 1" & vbCrLf
+    If cfg.MTMCap <= 0 Then msg = msg & "- MTM Cap % is blank or zero" & vbCrLf
     If msg <> "" Then
         If showErrors Then MsgBox "Fix the Property Setup sheet:" & vbCrLf & msg, _
             vbExclamation, "Property Setup"

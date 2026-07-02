@@ -1,4 +1,3 @@
-Attribute VB_Name = "modReaders"
 Option Explicit
 
 ' ================================================================
@@ -90,7 +89,7 @@ End Function
 '  READ YARDI RENT ROLL (.xlsx)
 '  Fills mthU(n, 0..5): Unit, Type, Name, MarketRent, ActualRent, LeaseEnd
 ' ================================================================
-Public Sub ReadYardi(cfg As PropConfig, wb As Workbook, mth As Long, yr As Long, _
+Public Sub ReadYardi(cfg As PropConfig, wb As Workbook, mth As Integer, yr As Integer, _
                      mthU() As Variant, mthCnt As Long)
     Dim ws As Worksheet: Set ws = wb.Sheets(1)
     mthCnt = 0
@@ -102,8 +101,8 @@ Public Sub ReadYardi(cfg As PropConfig, wb As Workbook, mth As Long, yr As Long,
     Dim cA As Long: cA = cfg.RRActual
     Dim cE As Long: cE = cfg.RRExpiry
 
-    Dim r As Long
     Dim dataRow As Long: dataRow = 0
+    Dim r As Long
     For r = 1 To 50
         If MatchesAnyPattern(cfg, CStr(ws.Cells(r, cU).Value)) Then
             dataRow = r: Exit For
@@ -216,15 +215,15 @@ Public Sub ReadRP(wb As Workbook, rpU() As Variant, rpCnt As Long)
     Dim lastRow As Long: lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
     ReDim rpU(lastRow, 3)
 
-    Dim cUnit As Long:   cUnit   = FindHeaderColExact(ws, 1, "Unit")
-    Dim cTerm As Long:   cTerm   = FindHeaderColExact(ws, 1, "Term")
+    Dim cUnit As Long:   cUnit = FindHeaderColExact(ws, 1, "Unit")
+    Dim cTerm As Long:   cTerm = FindHeaderColExact(ws, 1, "Term")
     Dim cCurTerm As Long: cCurTerm = FindHeaderColExact(ws, 1, "Current Lease | Term")
-    Dim cOff As Long:    cOff    = FindHeaderColExact(ws, 1, "Renewal Offers | Rent")
-    Dim cEff As Long:    cEff    = FindHeaderColExact(ws, 1, "Current Lease | Effective Rent")
-    If cUnit = 0    Then cUnit    = FindHeaderCol(ws, 1, "Unit")
+    Dim cOff As Long:    cOff = FindHeaderColExact(ws, 1, "Renewal Offers | Rent")
+    Dim cEff As Long:    cEff = FindHeaderColExact(ws, 1, "Current Lease | Effective Rent")
+    If cUnit = 0 Then cUnit = FindHeaderCol(ws, 1, "Unit")
     If cCurTerm = 0 Then cCurTerm = FindHeaderCol(ws, 1, "Current Lease | Term")
-    If cOff = 0     Then cOff     = FindHeaderCol(ws, 1, "Renewal Offers | Rent")
-    If cEff = 0     Then cEff     = FindHeaderCol(ws, 1, "Current Lease | Effective Rent")
+    If cOff = 0 Then cOff = FindHeaderCol(ws, 1, "Renewal Offers | Rent")
+    If cEff = 0 Then cEff = FindHeaderCol(ws, 1, "Current Lease | Effective Rent")
     If cUnit = 0 Or cTerm = 0 Then Exit Sub
 
     Dim bUnit() As String, bDiff() As Double
@@ -244,8 +243,8 @@ Public Sub ReadRP(wb As Workbook, rpU() As Variant, rpCnt As Long)
         Dim ofr As Double: ofr = 0
         Dim eff As Double: eff = 0
         Dim curTerm As Long: curTerm = 0
-        If cOff > 0     Then If IsNumeric(ws.Cells(r, cOff).Value)     Then ofr     = CDbl(ws.Cells(r, cOff).Value)
-        If cEff > 0     Then If IsNumeric(ws.Cells(r, cEff).Value)     Then eff     = CDbl(ws.Cells(r, cEff).Value)
+        If cOff > 0 Then If IsNumeric(ws.Cells(r, cOff).Value) Then ofr = CDbl(ws.Cells(r, cOff).Value)
+        If cEff > 0 Then If IsNumeric(ws.Cells(r, cEff).Value) Then eff = CDbl(ws.Cells(r, cEff).Value)
         If cCurTerm > 0 Then If IsNumeric(ws.Cells(r, cCurTerm).Value) Then curTerm = CLng(ws.Cells(r, cCurTerm).Value)
 
         Dim inc As Double: inc = 0
@@ -304,19 +303,17 @@ Public Sub ReadUnitRentsGrid(cfg As PropConfig, wb As Workbook, _
     Next r
     If hRow = 0 Then Exit Sub
 
-    Dim cUnit As Long:   cUnit   = FindHeaderColExact(ws, hRow, "UNIT")
+    Dim cUnit As Long:   cUnit = FindHeaderColExact(ws, hRow, "UNIT")
     Dim cCurEff As Long: cCurEff = FindHeaderCol(ws, hRow, "CURRENT EFFECTIVE RENT")
-    Dim cBest As Long:   cBest   = FindHeaderColExact(ws, hRow, "BEST OFFER")
+    Dim cBest As Long:   cBest = FindHeaderColExact(ws, hRow, "BEST OFFER")
     Dim cBestTm As Long: cBestTm = FindHeaderCol(ws, hRow, "BEST OFFER TERM")
-    Dim cNL As Long:     cNL     = FindHeaderColExact(ws, hRow, "NEW LEASE RENT")
-    Dim cCurTm As Long:  cCurTm  = FindHeaderColExact(ws, hRow, "CURRENT TERM")
-    If cUnit = 0    Then cUnit    = cfg.GridUnit
-    If cCurEff = 0  Then cCurEff  = cfg.GridCurEff
-    If cBest = 0    Then cBest    = cfg.GridBest
-    If cBestTm = 0  Then cBestTm  = cfg.GridBestTerm
-    If cNL = 0      Then cNL      = cfg.GridNewLease
-
-    If cUnit = 0 Then Exit Sub
+    Dim cNL As Long:     cNL = FindHeaderColExact(ws, hRow, "NEW LEASE RENT")
+    Dim cCurTm As Long:  cCurTm = FindHeaderColExact(ws, hRow, "CURRENT TERM")
+    If cUnit = 0 Then cUnit = cfg.GridUnit
+    If cCurEff = 0 Then cCurEff = cfg.GridCurEff
+    If cBest = 0 Then cBest = cfg.GridBest
+    If cBestTm = 0 Then cBestTm = cfg.GridBestTerm
+    If cNL = 0 Then cNL = cfg.GridNewLease
 
     Dim lastRow As Long: lastRow = ws.Cells(ws.Rows.Count, cUnit).End(xlUp).Row
     ReDim gridU(lastRow, 5)
@@ -325,11 +322,11 @@ Public Sub ReadUnitRentsGrid(cfg As PropConfig, wb As Workbook, _
         Dim uv As String: uv = Trim(CStr(ws.Cells(r, cUnit).Value))
         If uv = "" Or InStr(1, uv, "UNIT", vbTextCompare) > 0 Then GoTo NextGrid
 
-        Dim nlRent As Double:  nlRent  = CleanNum(CStr(ws.Cells(r, cNL).Value))
+        Dim nlRent As Double:  nlRent = CleanNum(CStr(ws.Cells(r, cNL).Value))
         Dim bestOff As Double: bestOff = CleanNum(CStr(ws.Cells(r, cBest).Value))
-        Dim curEff As Double:  curEff  = CleanNum(CStr(ws.Cells(r, cCurEff).Value))
-        Dim bestTm As Long:  bestTm  = 0
-        Dim curTm As Long:   curTm   = 0
+        Dim curEff As Double:  curEff = CleanNum(CStr(ws.Cells(r, cCurEff).Value))
+        Dim bestTm As Long:  bestTm = 0
+        Dim curTm As Long:   curTm = 0
         If IsNumeric(ws.Cells(r, cBestTm).Value) Then bestTm = CLng(ws.Cells(r, cBestTm).Value)
         If cCurTm > 0 Then
             If IsNumeric(ws.Cells(r, cCurTm).Value) Then curTm = CLng(ws.Cells(r, cCurTm).Value)
@@ -350,11 +347,11 @@ Public Function LookupGrid(gridU() As Variant, gridCnt As Long, unitNum As Strin
     Dim i As Long
     For i = 0 To gridCnt - 1
         If CStr(gridU(i, 0)) = unitNum Then
-            outNL      = CDbl(gridU(i, 1))
+            outNL = CDbl(gridU(i, 1))
             outBestOff = CDbl(gridU(i, 2))
-            outCurEff  = CDbl(gridU(i, 3))
+            outCurEff = CDbl(gridU(i, 3))
             outBestTerm = CLng(gridU(i, 4))
-            outCurTerm  = CLng(gridU(i, 5))
+            outCurTerm = CLng(gridU(i, 5))
             LookupGrid = True: Exit Function
         End If
     Next i
@@ -381,12 +378,12 @@ Public Sub ReadMovein(cfg As PropConfig, wb As Workbook, fpL() As Long)
     Next r
     If hRow = 0 Then Exit Sub
 
-    Dim cUT As Long:  cUT  = FindHeaderCol(ws, hRow, "Unit Type")
+    Dim cUT As Long:  cUT = FindHeaderCol(ws, hRow, "Unit Type")
     Dim cRent As Long: cRent = FindHeaderColExact(ws, hRow, "Rent")
-    Dim cMI As Long:  cMI  = FindHeaderCol(ws, hRow, "Move In")
-    If cUT = 0   Then cUT   = cfg.MIUnitType
+    Dim cMI As Long:  cMI = FindHeaderCol(ws, hRow, "Move In")
+    If cUT = 0 Then cUT = cfg.MIUnitType
     If cRent = 0 Then cRent = cfg.MIRent
-    If cMI = 0   Then cMI   = cfg.MIMoveIn
+    If cMI = 0 Then cMI = cfg.MIMoveIn
 
     Dim cutoff As Date: cutoff = DateAdd("m", -3, Date)
     Dim lastRow As Long: lastRow = ws.Cells(ws.Rows.Count, cUnit).End(xlUp).Row

@@ -1,4 +1,3 @@
-Attribute VB_Name = "modOverview"
 Option Explicit
 
 ' ================================================================
@@ -37,7 +36,6 @@ End Sub
 Public Sub RefreshOverview(cfg As PropConfig)
     Dim targetName As String: targetName = FindOverviewName()
     Dim evState As Boolean: evState = Application.EnableEvents
-    On Error GoTo RefOvErr
     Application.EnableEvents = False
 
     Dim ws As Worksheet
@@ -58,10 +56,6 @@ Public Sub RefreshOverview(cfg As PropConfig)
 
     BuildOverview cfg, ws, exMarks
     Application.EnableEvents = evState
-    Exit Sub
-RefOvErr:
-    Application.EnableEvents = evState
-    Err.Raise Err.Number, Err.Source, Err.Description
 End Sub
 
 Public Sub EnsureOverview(cfg As PropConfig)
@@ -169,15 +163,18 @@ NextR:
 End Function
 
 Private Sub BuildOverview(cfg As PropConfig, ws As Worksheet, exMarks As Object)
+    ws.Cells.Font.Name = "Calibri"
+    ws.Cells.Font.Size = 11
+
     Dim years As Variant: years = DetectYears(cfg)
     Dim yCount As Long: yCount = UBound(years) - LBound(years) + 1
 
-    Dim titles As Variant:   titles   = MetricTitles()
+    Dim titles As Variant:   titles = MetricTitles()
     Dim suffixes As Variant: suffixes = MetricSuffix()
-    Dim fmts As Variant:     fmts     = MetricFormat()
+    Dim fmts As Variant:     fmts = MetricFormat()
     Dim nMetric As Long: nMetric = UBound(titles) + 1
     Dim lastCol As Long: lastCol = 1 + nMetric
-    Dim exCol As Long:   exCol   = lastCol + 1
+    Dim exCol As Long:   exCol = lastCol + 1
     Dim fullCol As Long: fullCol = exCol
 
     With ws.Range(ws.Cells(1, 1), ws.Cells(1, fullCol))
@@ -325,6 +322,12 @@ Private Sub BuildOverview(cfg As PropConfig, ws As Worksheet, exMarks As Object)
                  "Type 'x' in the Exclude column to leave an in-process month out of " & _
                  "all YTD totals (the row greys out); clear it to include the month again."
         .Font.Size = 9: .Font.Italic = True: .Font.Color = RGB(120, 120, 120)
+        .HorizontalAlignment = xlLeft
+    End With
+
+    With ws.Cells(r + 2, 1)
+        .Value = "Workbook created by Christopher Sung"
+        .Font.Size = 8: .Font.Italic = True: .Font.Color = RGB(166, 166, 166)
         .HorizontalAlignment = xlLeft
     End With
 End Sub

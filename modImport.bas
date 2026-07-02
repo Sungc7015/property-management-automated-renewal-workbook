@@ -1,5 +1,6 @@
-Attribute VB_Name = "modImport"
 Option Explicit
+
+Private Const DEBUG_IMPORT As Boolean = False
 
 ' ================================================================
 '  modImport  -  button handler, orchestration, and sheet writing.
@@ -21,7 +22,7 @@ Option Explicit
 ' ----------------------------------------------------------------
 '  SHEET RESOLUTION
 ' ----------------------------------------------------------------
-Public Function ResolveMonthSheet(m As Long, yr As Long) As String
+Public Function ResolveMonthSheet(m As Integer, yr As Integer) As String
     Dim abbrevNm As String: abbrevNm = MonthSheetName(m, yr)
     If SheetExists(abbrevNm) Then ResolveMonthSheet = abbrevNm: Exit Function
 
@@ -56,20 +57,20 @@ Public Sub ImportMonthlyData()
                     "Import Monthly Data", Month(Now))
     If mStr = "" Then Exit Sub
     If Not IsNumeric(mStr) Then MsgBox "Enter a number 1-12.", vbExclamation: Exit Sub
-    Dim mNum As Long: mNum = CLng(mStr)
+    Dim mNum As Integer: mNum = CInt(mStr)
     If mNum < 1 Or mNum > 12 Then MsgBox "Enter a number 1-12.", vbExclamation: Exit Sub
 
     Dim yStr As String
     yStr = InputBox("Year:", "Import Monthly Data", cfg.yr)
     If yStr = "" Then Exit Sub
     If Not IsNumeric(yStr) Then MsgBox "Enter a 4-digit year.", vbExclamation: Exit Sub
-    Dim yr As Long: yr = CLng(yStr)
+    Dim yr As Integer: yr = CInt(yStr)
     If yr < 2000 Or yr > 2100 Then MsgBox "Enter a year between 2000 and 2100.", vbExclamation, "Import Monthly Data": Exit Sub
 
     MsgBox "You will be asked to select up to 5 report files." & vbCrLf & _
            "Click Cancel on any file to skip that report." & vbCrLf & vbCrLf & _
            "  1. Yardi Rent Roll (.xlsx)           REQUIRED" & vbCrLf & _
-           "  2. Yardi Unit Statistics (.xlsx)     fills L, X" & vbCrLf & _
+           "  2. Yardi Unit Statistics (.xlsx)     fills K, W" & vbCrLf & _
            "  3. RP Renewal Offer Analysis (.csv)  fills F, T (fallback)" & vbCrLf & _
            "  4. Unit Rents Grid (.xlsx)            fills F, N, T, Best Term" & vbCrLf & _
            "  5. Move-in Box Score (.xls)           fills M", _
@@ -81,7 +82,7 @@ Public Sub ImportMonthlyData()
     If yardiPath = "" Then Exit Sub
 
     MsgBox "Step 2 of 5 - Select your YARDI UNIT STATISTICS (.xlsx)" & vbCrLf & _
-           "Fills: Col L (Occupied Avg) and Col X (Inplace Lease Avg)" & vbCrLf & _
+           "Fills: Col K (Occupied Avg) and Col W (Inplace Lease Avg)" & vbCrLf & _
            "Click Cancel to skip.", vbInformation, "Import"
     Dim statsPath As String: statsPath = PickFile("Select Yardi Unit Statistics", "xlsx")
 
@@ -123,7 +124,7 @@ End Sub
 ' ================================================================
 '  CORE ORCHESTRATION
 ' ================================================================
-Private Function DoImport(cfg As PropConfig, mNum As Long, yr As Long, _
+Private Function DoImport(cfg As PropConfig, mNum As Integer, yr As Integer, _
                            yardiPath As String, statsPath As String, _
                            rpPath As String, gridPath As String, _
                            moveinPath As String) As String
@@ -135,45 +136,40 @@ Private Function DoImport(cfg As PropConfig, mNum As Long, yr As Long, _
     End If
     Dim ws As Worksheet: Set ws = ThisWorkbook.Sheets(shName)
 
-    ' Declare all WB variables up front so the cleanup label can close them
-    Dim yardiWB  As Workbook
-    Dim statsWB  As Workbook
-    Dim rpWB     As Workbook
-    Dim gridWB   As Workbook
-    Dim miWB     As Workbook
-
-    On Error GoTo Cleanup
-
+    Dim yardiWB As Workbook
     Set yardiWB = Workbooks.Open(yardiPath, ReadOnly:=True, UpdateLinks:=False)
     Dim mthUnits() As Variant, mthCnt As Long
     ReadYardi cfg, yardiWB, mNum, yr, mthUnits, mthCnt
-    yardiWB.Close False: Set yardiWB = Nothing
+    yardiWB.Close False
 
     Dim fpAvgs() As Long
     ReDim fpAvgs(cfg.GroupCount - 1)
     If statsPath <> "" Then
         If Dir(statsPath) <> "" Then
+            Dim statsWB As Workbook
             Set statsWB = Workbooks.Open(statsPath, ReadOnly:=True, UpdateLinks:=False)
             ReadUnitStats cfg, statsWB, fpAvgs
-            statsWB.Close False: Set statsWB = Nothing
+            statsWB.Close False
         End If
     End If
 
     Dim rpUnits() As Variant, rpCnt As Long: rpCnt = 0
     If rpPath <> "" Then
         If Dir(rpPath) <> "" Then
+            Dim rpWB As Workbook
             Set rpWB = Workbooks.Open(rpPath, ReadOnly:=True, UpdateLinks:=False)
             ReadRP rpWB, rpUnits, rpCnt
-            rpWB.Close False: Set rpWB = Nothing
+            rpWB.Close False
         End If
     End If
 
     Dim gridUnits() As Variant, gridCnt As Long: gridCnt = 0
     If gridPath <> "" Then
         If Dir(gridPath) <> "" Then
+            Dim gridWB As Workbook
             Set gridWB = Workbooks.Open(gridPath, ReadOnly:=True, UpdateLinks:=False)
             ReadUnitRentsGrid cfg, gridWB, gridUnits, gridCnt
-            gridWB.Close False: Set gridWB = Nothing
+            gridWB.Close False
         End If
     End If
 
@@ -181,25 +177,19 @@ Private Function DoImport(cfg As PropConfig, mNum As Long, yr As Long, _
     ReDim fpL(cfg.GroupCount - 1)
     If moveinPath <> "" Then
         If Dir(moveinPath) <> "" Then
+            Dim miWB As Workbook
             Set miWB = Workbooks.Open(moveinPath, ReadOnly:=True, UpdateLinks:=False)
-            If miWB.HasVBProject Then
-                miWB.Close False: Set miWB = Nothing
-                MsgBox "The Move-in Box Score file contains VBA macros and was not loaded." & vbCrLf & _
-                       "Please export a clean .xls from RealPage and try again.", _
-                       vbExclamation, "Security Warning"
-            Else
-                ReadMovein cfg, miWB, fpL
-                miWB.Close False: Set miWB = Nothing
-            End If
+            ReadMovein cfg, miWB, fpL
+            miWB.Close False
         End If
     End If
 
     FillSheet cfg, ws, mthUnits, mthCnt, fpAvgs, fpL, rpUnits, rpCnt, gridUnits, gridCnt
 
     Dim skipped As String: skipped = ""
-    If statsPath = "" Then skipped = skipped & "  Col L, X - Yardi Unit Statistics not provided" & vbCrLf
-    If rpPath    = "" Then skipped = skipped & "  Col F, T fallback - RP Renewal Offer Analysis not provided" & vbCrLf
-    If gridPath  = "" Then skipped = skipped & "  Col F, N, T - Unit Rents Grid not provided" & vbCrLf
+    If statsPath = "" Then skipped = skipped & "  Col K, W - Yardi Unit Statistics not provided" & vbCrLf
+    If rpPath = "" Then skipped = skipped & "  Col F, T fallback - RP Renewal Offer Analysis not provided" & vbCrLf
+    If gridPath = "" Then skipped = skipped & "  Col F, N, T - Unit Rents Grid not provided" & vbCrLf
     If moveinPath = "" Then skipped = skipped & "  Col M - Move-in Box Score not provided" & vbCrLf
 
     DoImport = MonthName(mNum) & " " & yr & " - " & mthCnt & " units imported to '" & shName & "'." & _
@@ -215,17 +205,6 @@ Private Function DoImport(cfg As PropConfig, mNum As Long, yr As Long, _
                    "UNMAPPED YARDI CODES (units skipped - add these to the" & vbCrLf & _
                    "Property Setup code map and re-import):" & vbCrLf & "  " & UnmappedList()
     End If
-    Exit Function
-
-Cleanup:
-    On Error Resume Next
-    If Not yardiWB Is Nothing Then yardiWB.Close False
-    If Not statsWB  Is Nothing Then statsWB.Close False
-    If Not rpWB     Is Nothing Then rpWB.Close False
-    If Not gridWB   Is Nothing Then gridWB.Close False
-    If Not miWB     Is Nothing Then miWB.Close False
-    On Error GoTo 0
-    Err.Raise Err.Number, Err.Source, Err.Description
 End Function
 
 ' ================================================================
@@ -273,6 +252,14 @@ Private Sub FillSheet(cfg As PropConfig, ws As Worksheet, _
         End If
     Next r
     If secCount = 0 Then Exit Sub
+
+    If DEBUG_IMPORT Then
+        MsgBox "FillSheet entry" & vbCrLf & _
+               "  mthCnt   = " & mthCnt & vbCrLf & _
+               "  secCount = " & secCount, _
+               vbInformation, "FillSheet Debug"
+    End If
+
     If boundaryRow > 0 Then
         secLast(secCount - 1) = boundaryRow - 1
     Else
@@ -309,6 +296,17 @@ SkipUnit:
         ReDim availRows(mthCnt + cfg.BufferRows + 5)
         avail = CountAvail(ws, secFirst(si), secLast(si), availRows)
 
+        If DEBUG_IMPORT Then
+            Dim need_ As Long: need_ = secUnitCnt(si) - avail
+            MsgBox "Section [" & secLabel(si) & "]  (si=" & si & ")" & vbCrLf & _
+                   "  secFirst   = " & secFirst(si) & vbCrLf & _
+                   "  secLast    = " & secLast(si) & vbCrLf & _
+                   "  secUnitCnt = " & secUnitCnt(si) & vbCrLf & _
+                   "  avail      = " & avail & vbCrLf & _
+                   "  need       = " & need_, _
+                   vbInformation, "FillSheet Debug"
+        End If
+
         ' Insert rows if more units than available slots
         Dim need As Long: need = secUnitCnt(si) - avail
         If need > 0 Then
@@ -344,13 +342,13 @@ SkipUnit:
         Dim sectionGrp As String
         sectionGrp = GetGroupForCode(cfg, CStr(mthU(secUnitIdx(si, 0), 1)))
         Dim occAvg As Long: occAvg = LookupFP(cfg, fpAvgs, sectionGrp)
-        Dim lAvg As Long:   lAvg   = LookupFP(cfg, fpL, sectionGrp)
+        Dim lAvg As Long:   lAvg = LookupFP(cfg, fpL, sectionGrp)
 
         Dim uI As Long
         For uI = 0 To secUnitCnt(si) - 1
             If uI >= avail Then Exit For
             Dim fillRow As Long: fillRow = availRows(uI)
-            Dim idx As Long:     idx     = secUnitIdx(si, uI)
+            Dim idx As Long:     idx = secUnitIdx(si, uI)
             Dim unitNum As String: unitNum = CStr(mthU(idx, 0))
 
             Dim ysInc As Double, rpCurTerm As Long
@@ -384,7 +382,7 @@ SkipUnit:
             ws.Cells(fillRow, 11).Value = mk                       ' K: MarketRent
 
             If occAvg > 0 Then ws.Cells(fillRow, 12).Value = occAvg  ' L: OccAvg
-            If lAvg > 0   Then ws.Cells(fillRow, 13).Value = lAvg    ' M: RecentAvg
+            If lAvg > 0 Then ws.Cells(fillRow, 13).Value = lAvg      ' M: RecentAvg
             If hasGrid And newLease > 0 Then ws.Cells(fillRow, 14).Value = CLng(newLease)  ' N: NewLeaseRent
 
             If IsDate(mthU(idx, 5)) Then _

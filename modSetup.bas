@@ -1,4 +1,3 @@
-Attribute VB_Name = "modSetup"
 Option Explicit
 
 ' ================================================================
@@ -42,8 +41,8 @@ Public Sub CreateSetupSheet()
                  "Workbook Year", "Unit Number Pattern(s)  -  N=digit, A=letter, comma-separate multiples", _
                  "MTM Cap %", "MTM Cap Through Date", "Buffer Rows per Section", _
                  "# of Floor Plan Groups (info - the list below is the source of truth)")
-    vals = Array("Property Name", "Short Name", 2027, "NN-NNN", _
-                 0.05, DateSerial(2027, 12, 31), 2, 6)
+    vals = Array("FountainGlen Laguna Niguel", "FG Laguna Niguel", 2027, "NN-NNN", _
+                 0.087, DateSerial(2027, 7, 31), 2, 6)
     Dim i As Long
     For i = 0 To UBound(lbls)
         ws.Cells(3 + i, 1).Value = lbls(i)
@@ -103,20 +102,21 @@ Public Sub CreateSetupSheet()
     ws.Columns("D").ColumnWidth = 14: ws.Columns("E").ColumnWidth = 42
     ws.Columns("G").ColumnWidth = 30: ws.Columns("H").ColumnWidth = 8
 
-    AddName "PS.PropertyName",   ws.Range("B3")
-    AddName "PS.ShortName",      ws.Range("B4")
-    AddName "PS.Year",           ws.Range("B5")
-    AddName "PS.UnitPatterns",   ws.Range("B6")
-    AddName "PS.MTMCap",         ws.Range("B7")
-    AddName "PS.MTMThrough",     ws.Range("B8")
-    AddName "PS.BufferRows",     ws.Range("B9")
+    AddName "PS.PropertyName", ws.Range("B3")
+    AddName "PS.ShortName", ws.Range("B4")
+    AddName "PS.Year", ws.Range("B5")
+    AddName "PS.UnitPatterns", ws.Range("B6")
+    AddName "PS.MTMCap", ws.Range("B7")
+    AddName "PS.MTMThrough", ws.Range("B8")
+    AddName "PS.BufferRows", ws.Range("B9")
     AddName "PS.GroupCountCell", ws.Range("B10")
-    AddName "PS.GroupsTop",      ws.Range("B14")
-    AddName "PS.CodesTop",       ws.Range("D14")
-    AddName "PS.FallbacksTop",   ws.Range("G14")
+    AddName "PS.GroupsTop", ws.Range("B14")
+    AddName "PS.CodesTop", ws.Range("D14")
+    AddName "PS.FallbacksTop", ws.Range("G14")
 
     With ws.Range("A31")
-        .Value = "Property Renewal Workbook System    -    version " & VER
+        .Value = "Property Renewal Workbook System    -    version " & VER & _
+                 "    -    created by Christopher Sung"
         .Font.Size = 8: .Font.Italic = True: .Font.Color = RGB(150, 150, 150)
     End With
 
@@ -207,7 +207,7 @@ NextMonth:
     Application.EnableEvents = True
 
     Dim msg As String
-    If built   <> "" Then msg = "Generated:" & vbCrLf & built
+    If built <> "" Then msg = "Generated:" & vbCrLf & built
     If skipped <> "" Then msg = msg & vbCrLf & "Skipped:" & vbCrLf & skipped
     If msg = "" Then msg = "Nothing generated."
     MsgBox msg, vbInformation, "Generate Month Sheets"
@@ -275,22 +275,25 @@ Private Sub BuildMonthSheet(cfg As PropConfig, mNum As Long, yr As Long, rowsPer
     For g = 0 To cfg.GroupCount - 1
         barRow(g) = r
         dFirst(g) = r + 1
-        dLast(g)  = r + rowsPerSection
+        dLast(g) = r + rowsPerSection
         r = dLast(g) + 1
     Next g
-    Dim totalRow As Long:  totalRow  = r
-    Dim statsHdr As Long:  statsHdr  = totalRow + 3
+    Dim totalRow As Long:  totalRow = r
+    Dim statsHdr As Long:  statsHdr = totalRow + 3
     Dim firstStat As Long: firstStat = statsHdr + 1
-    Dim rRenew As Long:  rRenew  = firstStat
-    Dim rPct As Long:    rPct    = firstStat + 1
-    Dim rInc As Long:    rInc    = firstStat + 2
-    Dim rAvg As Long:    rAvg    = firstStat + 3
-    Dim rDol As Long:    rDol    = firstStat + 4
+    Dim rRenew As Long:  rRenew = firstStat
+    Dim rPct As Long:    rPct = firstStat + 1
+    Dim rInc As Long:    rInc = firstStat + 2
+    Dim rAvg As Long:    rAvg = firstStat + 3
+    Dim rDol As Long:    rDol = firstStat + 4
     Dim statsEnd As Long
     statsEnd = rDol + 2
     If rPct + cfg.GroupCount - 1 > statsEnd Then statsEnd = rPct + cfg.GroupCount - 1
 
     Dim capStr As String: capStr = Trim(Str(cfg.MTMCap))
+
+    ws.Cells.Font.Name = "Calibri"
+    ws.Cells.Font.Size = 11
 
     ' Title row
     With ws.Range(ws.Cells(1, 1), ws.Cells(1, 21))
@@ -376,8 +379,8 @@ Private Sub BuildMonthSheet(cfg As PropConfig, mNum As Long, yr As Long, rowsPer
         ws.Rows(br).RowHeight = 18.75
 
         For r = dFirst(g) To dLast(g)
-            ws.Cells(r, 8).Formula  = "=IF(E" & r & "="""","""",SUM(G" & r & "/E" & r & "))"
-            ws.Cells(r, 9).Value    = 0
+            ws.Cells(r, 8).Formula = "=IF(E" & r & "="""","""",SUM(G" & r & "/E" & r & "))"
+            ws.Cells(r, 9).Value = 0
             ws.Cells(r, 10).Formula = "=E" & r & "+G" & r
             ws.Cells(r, 15).Formula = "=IF(N" & r & "="""","""",SUM((N" & r & "-J" & r & ")/J" & r & "))"
             ws.Cells(r, 17).Formula = "=SUM(S" & r & "-E" & r & ")"
@@ -404,16 +407,16 @@ Private Sub BuildMonthSheet(cfg As PropConfig, mNum As Long, yr As Long, rowsPer
     Dim uJ As String: uJ = UnionRef("J", dFirst, dLast, cfg.GroupCount)
 
     ws.Cells(totalRow, 4).Value = "Total Rent:": ws.Cells(totalRow, 4).Font.Bold = True
-    ws.Cells(totalRow, 5).Formula  = "=SUM(" & uE & ")"
-    ws.Cells(totalRow, 6).Formula  = "=SUM(" & uF & ")"
-    ws.Cells(totalRow, 7).Formula  = "=SUM(" & uG & ")"
-    ws.Cells(totalRow, 8).Formula  = "=IFERROR(AVERAGE(" & uH & "),"""")"
-    ws.Cells(totalRow, 9).Formula  = "=SUM(" & uI & ")"
+    ws.Cells(totalRow, 5).Formula = "=SUM(" & uE & ")"
+    ws.Cells(totalRow, 6).Formula = "=SUM(" & uF & ")"
+    ws.Cells(totalRow, 7).Formula = "=SUM(" & uG & ")"
+    ws.Cells(totalRow, 8).Formula = "=IFERROR(AVERAGE(" & uH & "),"""")"
+    ws.Cells(totalRow, 9).Formula = "=SUM(" & uI & ")"
     ws.Cells(totalRow, 10).Formula = "=SUM(" & uJ & ")"
     With ws.Range(ws.Cells(totalRow, 5), ws.Cells(totalRow, 10))
         .Font.Bold = True: .Interior.Color = BAR_GREY
     End With
-    ws.Cells(totalRow, 8).NumberFormat  = "0.0%"
+    ws.Cells(totalRow, 8).NumberFormat = "0.0%"
     ws.Cells(totalRow, 10).NumberFormat = "$#,##0.00"
     ws.Rows(totalRow).RowHeight = 20.1
 
@@ -440,19 +443,19 @@ Private Sub BuildMonthSheet(cfg As PropConfig, mNum As Long, yr As Long, rowsPer
 
     ' Stats left side
     StatLabel ws, rRenew, "Total # of Renewals for Mth:"
-    StatLabel ws, rPct,   "% of Increases:"
-    StatLabel ws, rInc,   "# of Increases"
-    StatLabel ws, rAvg,   "Average Increase:"
-    StatLabel ws, rDol,   "Total $ of Increases:"
+    StatLabel ws, rPct, "% of Increases:"
+    StatLabel ws, rInc, "# of Increases"
+    StatLabel ws, rAvg, "Average Increase:"
+    StatLabel ws, rDol, "Total $ of Increases:"
 
     ws.Cells(rRenew, 5).NumberFormat = "0"
-    ws.Cells(rPct,   5).Formula      = "=H" & totalRow
-    ws.Cells(rPct,   5).NumberFormat = "0.00%"
-    ws.Cells(rInc,   5).NumberFormat = "0"
-    ws.Cells(rAvg,   5).Formula      = "=IFERROR(G" & totalRow & "/E" & rRenew & ","""")"
-    ws.Cells(rAvg,   5).NumberFormat = "$#,##0"
-    ws.Cells(rDol,   5).Formula      = "=G" & totalRow
-    ws.Cells(rDol,   5).NumberFormat = "$#,##0"
+    ws.Cells(rPct, 5).Formula = "=H" & totalRow
+    ws.Cells(rPct, 5).NumberFormat = "0.00%"
+    ws.Cells(rInc, 5).NumberFormat = "0"
+    ws.Cells(rAvg, 5).Formula = "=IFERROR(G" & totalRow & "/E" & rRenew & ","""")"
+    ws.Cells(rAvg, 5).NumberFormat = "$#,##0"
+    ws.Cells(rDol, 5).Formula = "=G" & totalRow
+    ws.Cells(rDol, 5).NumberFormat = "$#,##0"
 
     Dim sr As Long
     For sr = rRenew To rDol
@@ -470,7 +473,7 @@ Private Sub BuildMonthSheet(cfg As PropConfig, mNum As Long, yr As Long, rowsPer
     ' Per-group avg increase
     For g = 0 To cfg.GroupCount - 1
         r = rPct + g
-        ws.Cells(r, 6).Value   = cfg.GroupNames(g) & " Avg Increase"
+        ws.Cells(r, 6).Value = cfg.GroupNames(g) & " Avg Increase"
         ws.Cells(r, 7).Formula = "=IFERROR(AVERAGE(G" & dFirst(g) & ":G" & dLast(g) & "),"""")"
         ws.Cells(r, 7).NumberFormat = "$#,##0"
         ws.Cells(r, 7).Font.Bold = True
@@ -478,32 +481,32 @@ Private Sub BuildMonthSheet(cfg As PropConfig, mNum As Long, yr As Long, rowsPer
     Next g
 
     ' Stats right side
-    Dim uBlock As String:     uBlock     = "A" & dFirst(0) & ":A" & (totalRow - 1)
-    Dim fBlock As String:     fBlock     = "G" & dFirst(0) & ":G" & (totalRow - 1)
-    Dim qBlock As String:     qBlock     = "Q" & dFirst(0) & ":Q" & (totalRow - 1)
-    Dim rMTM As Long:         rMTM       = rDol
-    Dim rTotalCap As Long:    rTotalCap  = rDol + 1
+    Dim uBlock As String:     uBlock = "A" & dFirst(0) & ":A" & (totalRow - 1)
+    Dim fBlock As String:     fBlock = "G" & dFirst(0) & ":G" & (totalRow - 1)
+    Dim qBlock As String:     qBlock = "Q" & dFirst(0) & ":Q" & (totalRow - 1)
+    Dim rMTM As Long:         rMTM = rDol
+    Dim rTotalCap As Long:    rTotalCap = rDol + 1
     Dim rPotential As Long:   rPotential = rDol + 2
 
-    StatRightLabel ws, rPct,       "Signed (Renewed):"
-    StatRightLabel ws, rInc,       "Capture Ratio %"
-    StatRightLabel ws, rAvg,       "Renewal $ Increase (12-Mo Signed):"
-    StatRightLabel ws, rMTM,       "MTM $ Increase (Premium):"
-    StatRightLabel ws, rTotalCap,  "Total $ Captured (Renewals + MTM):"
+    StatRightLabel ws, rPct, "Signed (Renewed):"
+    StatRightLabel ws, rInc, "Capture Ratio %"
+    StatRightLabel ws, rAvg, "Renewal $ Increase (12-Mo Signed):"
+    StatRightLabel ws, rMTM, "MTM $ Increase (Premium):"
+    StatRightLabel ws, rTotalCap, "Total $ Captured (Renewals + MTM):"
     StatRightLabel ws, rPotential, "Potential $ Increase (All Units):"
 
-    ws.Cells(rPct,      12).Formula      = "=COUNTIF(" & uBlock & ",""Renewed"")"
-    ws.Cells(rPct,      12).NumberFormat = "0"
-    ws.Cells(rInc,      12).Formula      = "=IFERROR(L" & rPct & "/E" & rRenew & ","""")"
-    ws.Cells(rInc,      12).NumberFormat = "0.0%"
-    ws.Cells(rAvg,      12).Formula      = "=IFERROR(SUMIF(" & uBlock & ",""Renewed""," & fBlock & "),"""")"
-    ws.Cells(rAvg,      12).NumberFormat = "$#,##0"
-    ws.Cells(rMTM,      12).Formula      = "=IFERROR(SUMIF(" & uBlock & ",""MTM""," & qBlock & "),"""")"
-    ws.Cells(rMTM,      12).NumberFormat = "$#,##0"
-    ws.Cells(rTotalCap, 12).Formula      = "=L" & rAvg & "+L" & rMTM
+    ws.Cells(rPct, 12).Formula = "=COUNTIF(" & uBlock & ",""Renewed"")"
+    ws.Cells(rPct, 12).NumberFormat = "0"
+    ws.Cells(rInc, 12).Formula = "=IFERROR(L" & rPct & "/E" & rRenew & ","""")"
+    ws.Cells(rInc, 12).NumberFormat = "0.0%"
+    ws.Cells(rAvg, 12).Formula = "=IFERROR(SUMIF(" & uBlock & ",""Renewed""," & fBlock & "),"""")"
+    ws.Cells(rAvg, 12).NumberFormat = "$#,##0"
+    ws.Cells(rMTM, 12).Formula = "=IFERROR(SUMIF(" & uBlock & ",""MTM""," & qBlock & "),"""")"
+    ws.Cells(rMTM, 12).NumberFormat = "$#,##0"
+    ws.Cells(rTotalCap, 12).Formula = "=L" & rAvg & "+L" & rMTM
     ws.Cells(rTotalCap, 12).NumberFormat = "$#,##0"
-    ws.Cells(rPotential,12).Formula      = "=G" & totalRow
-    ws.Cells(rPotential,12).NumberFormat = "$#,##0"
+    ws.Cells(rPotential, 12).Formula = "=G" & totalRow
+    ws.Cells(rPotential, 12).NumberFormat = "$#,##0"
 
     Dim kr As Long
     For kr = rPct To rPotential
@@ -514,7 +517,7 @@ Private Sub BuildMonthSheet(cfg As PropConfig, mNum As Long, yr As Long, rowsPer
         End With
     Next kr
 
-    ws.Cells(rDol, 19).Formula      = "=IFERROR(G" & totalRow & "/E" & rInc & ","""")"
+    ws.Cells(rDol, 19).Formula = "=IFERROR(G" & totalRow & "/E" & rInc & ","""")"
     ws.Cells(rDol, 19).NumberFormat = "$#,##0.00"
 
     For sr = rRenew To statsEnd
@@ -535,8 +538,8 @@ Private Sub BuildMonthSheet(cfg As PropConfig, mNum As Long, yr As Long, rowsPer
 
     ' Column widths
     Dim wCols As Variant, wVals As Variant
-    wCols = Array("A","B","C","D","E","F","G","H","I","J","K","L","M","N", _
-                  "O","P","Q","R","S","T","U","V","W","X","Y","Z","AA")
+    wCols = Array("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", _
+                  "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "AA")
     wVals = Array(12#, 9.14, 21.57, 12.29, 13.86, 10.71, 14.57, 10.71, 10.71, 13.57, 11.43, _
                   10.71, 10.71, 10.71, 11.57, 13#, 13#, 13.14, 15.86, 9.14, 48.71, _
                   4#, 10.71, 10.71, 9.86, 9.14, 13.86)
@@ -546,7 +549,7 @@ Private Sub BuildMonthSheet(cfg As PropConfig, mNum As Long, yr As Long, rowsPer
 
     ' Renewal Status dropdown + row coloring
     Dim firstData As Long: firstData = dFirst(0)
-    Dim lastData As Long:  lastData  = totalRow - 1
+    Dim lastData As Long:  lastData = totalRow - 1
     Dim gv As Long
     For gv = 0 To cfg.GroupCount - 1
         With ws.Range(ws.Cells(dFirst(gv), 1), ws.Cells(dLast(gv), 1)).Validation
@@ -655,15 +658,15 @@ Private Sub DefineMonthNames(p As String, shName As String, _
     Next i
 
     Dim pre As String: pre = "='" & shName & "'!"
-    ThisWorkbook.Names.Add Name:=p & ".Renewals",            RefersTo:=pre & "$E$" & rRenew
-    ThisWorkbook.Names.Add Name:=p & ".Increases",           RefersTo:=pre & "$E$" & rInc
-    ThisWorkbook.Names.Add Name:=p & ".AvgDollar",           RefersTo:=pre & "$E$" & rAvg
-    ThisWorkbook.Names.Add Name:=p & ".AvgPercent",          RefersTo:=pre & "$E$" & rPct
-    ThisWorkbook.Names.Add Name:=p & ".TotalDollar",         RefersTo:=pre & "$E$" & rDol
-    ThisWorkbook.Names.Add Name:=p & ".CurrentRenewed",      RefersTo:=pre & "$L$" & rPct
-    ThisWorkbook.Names.Add Name:=p & ".CaptureRatio",        RefersTo:=pre & "$L$" & rInc
-    ThisWorkbook.Names.Add Name:=p & ".SignedDollar",        RefersTo:=pre & "$L$" & rAvg
-    ThisWorkbook.Names.Add Name:=p & ".MTMDollar",           RefersTo:=pre & "$L$" & rDol
+    ThisWorkbook.Names.Add Name:=p & ".Renewals", RefersTo:=pre & "$E$" & rRenew
+    ThisWorkbook.Names.Add Name:=p & ".Increases", RefersTo:=pre & "$E$" & rInc
+    ThisWorkbook.Names.Add Name:=p & ".AvgDollar", RefersTo:=pre & "$E$" & rAvg
+    ThisWorkbook.Names.Add Name:=p & ".AvgPercent", RefersTo:=pre & "$E$" & rPct
+    ThisWorkbook.Names.Add Name:=p & ".TotalDollar", RefersTo:=pre & "$E$" & rDol
+    ThisWorkbook.Names.Add Name:=p & ".CurrentRenewed", RefersTo:=pre & "$L$" & rPct
+    ThisWorkbook.Names.Add Name:=p & ".CaptureRatio", RefersTo:=pre & "$L$" & rInc
+    ThisWorkbook.Names.Add Name:=p & ".SignedDollar", RefersTo:=pre & "$L$" & rAvg
+    ThisWorkbook.Names.Add Name:=p & ".MTMDollar", RefersTo:=pre & "$L$" & rDol
     ThisWorkbook.Names.Add Name:=p & ".TotalCapturedDollar", RefersTo:=pre & "$L$" & (rDol + 1)
 End Sub
 
@@ -671,10 +674,10 @@ Private Function IsMonthPrefixedName(nm As String) As Boolean
     Dim dotPos As Long: dotPos = InStr(nm, ".")
     If dotPos < 4 Then Exit Function
     Dim head As String: head = Left(nm, dotPos - 1)
-    Dim mab As String:  mab  = LCase(Left(head, 3))
-    Dim ok As Boolean:  ok   = False
+    Dim mab As String:  mab = LCase(Left(head, 3))
+    Dim ok As Boolean:  ok = False
     Dim a As Variant
-    For Each a In Array("jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec")
+    For Each a In Array("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
         If mab = a Then ok = True: Exit For
     Next a
     If Not ok Then Exit Function
@@ -684,3 +687,28 @@ Private Function IsMonthPrefixedName(nm As String) As Boolean
     End If
     IsMonthPrefixedName = True
 End Function
++----------+--------------------+---------------------------------------------+
+|Type      |Keyword             |Description                                  |
++----------+--------------------+---------------------------------------------+
+|Suspicious|Open                |May open a file                              |
+|Suspicious|Write               |May write to a file (if combined with Open)  |
+|Suspicious|kill                |May delete a file                            |
+|Suspicious|run                 |May run an executable file or a system       |
+|          |                    |command                                      |
+|Suspicious|create              |May execute file or a system command through |
+|          |                    |WMI                                          |
+|Suspicious|CreateObject        |May create an OLE object                     |
+|Suspicious|VBProject           |May attempt to modify the VBA code (self-    |
+|          |                    |modification)                                |
+|Suspicious|VBComponents        |May attempt to modify the VBA code (self-    |
+|          |                    |modification)                                |
+|Suspicious|system              |May run an executable file or a system       |
+|          |                    |command on a Mac (if combined with           |
+|          |                    |libc.dylib)                                  |
+|Suspicious|Hex Strings         |Hex-encoded strings were detected, may be    |
+|          |                    |used to obfuscate strings (option --decode to|
+|          |                    |see all)                                     |
+|Suspicious|Base64 Strings      |Base64-encoded strings were detected, may be |
+|          |                    |used to obfuscate strings (option --decode to|
+|          |                    |see all)                                     |
++----------+--------------------+---------------------------------------------+

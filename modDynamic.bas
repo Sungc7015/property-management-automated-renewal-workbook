@@ -1,4 +1,3 @@
-Attribute VB_Name = "modDynamic"
 Option Explicit
 
 ' ================================================================
@@ -20,13 +19,20 @@ Option Explicit
 '  Version 2.1.0 - refactored from modRenewalDynamic v1.2.1
 ' ================================================================
 
+Private mBufCache As Long
+
+Public Sub RefreshBufferCache()
+    mBufCache = 0
+End Sub
+
 Private Function GetBufferRows() As Long
-    Dim v As Long
-    On Error Resume Next
-    v = CLng(ThisWorkbook.Names("PS.BufferRows").RefersToRange.Value)
-    On Error GoTo 0
-    If v < 1 Then v = 2
-    GetBufferRows = v
+    If mBufCache < 1 Then
+        On Error Resume Next
+        mBufCache = CLng(ThisWorkbook.Names("PS.BufferRows").RefersToRange.Value)
+        On Error GoTo 0
+        If mBufCache < 1 Then mBufCache = 2
+    End If
+    GetBufferRows = mBufCache
 End Function
 
 ' ----------------------------------------------------------------
@@ -72,7 +78,7 @@ Private Sub InsertBufferRow(ws As Worksheet, insertAt As Long)
     InsertRowCopyFromSource ws, insertAt, copyFrom
 
     ' Clear unit-specific data. Cols L(12) M(13) X(24) are intentionally kept
-    ' from the row above — new buffer rows inherit floor-plan averages from peers.
+    ' from the row above â€” new buffer rows inherit floor-plan averages from peers.
     ' v1.1.0 columns: A(1) B(2) C(3) D(4) E(5) F(6) K(11) N(14) P(16) T(20) U(21)
     Dim clearCols As Variant
     clearCols = Array(1, 2, 3, 4, 5, 6, 11, 14, 16, 20, 21)
