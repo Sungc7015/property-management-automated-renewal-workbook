@@ -1,3 +1,4 @@
+Attribute VB_Name = "modImport"
 Option Explicit
 
 Private Const DEBUG_IMPORT As Boolean = False

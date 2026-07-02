@@ -1,3 +1,4 @@
+Attribute VB_Name = "modDynamic"
 Option Explicit
 
 ' ================================================================
