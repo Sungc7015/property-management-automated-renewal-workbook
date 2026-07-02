@@ -688,28 +688,3 @@ Private Function IsMonthPrefixedName(nm As String) As Boolean
     End If
     IsMonthPrefixedName = True
 End Function
-+----------+--------------------+---------------------------------------------+
-|Type      |Keyword             |Description                                  |
-+----------+--------------------+---------------------------------------------+
-|Suspicious|Open                |May open a file                              |
-|Suspicious|Write               |May write to a file (if combined with Open)  |
-|Suspicious|kill                |May delete a file                            |
-|Suspicious|run                 |May run an executable file or a system       |
-|          |                    |command                                      |
-|Suspicious|create              |May execute file or a system command through |
-|          |                    |WMI                                          |
-|Suspicious|CreateObject        |May create an OLE object                     |
-|Suspicious|VBProject           |May attempt to modify the VBA code (self-    |
-|          |                    |modification)                                |
-|Suspicious|VBComponents        |May attempt to modify the VBA code (self-    |
-|          |                    |modification)                                |
-|Suspicious|system              |May run an executable file or a system       |
-|          |                    |command on a Mac (if combined with           |
-|          |                    |libc.dylib)                                  |
-|Suspicious|Hex Strings         |Hex-encoded strings were detected, may be    |
-|          |                    |used to obfuscate strings (option --decode to|
-|          |                    |see all)                                     |
-|Suspicious|Base64 Strings      |Base64-encoded strings were detected, may be |
-|          |                    |used to obfuscate strings (option --decode to|
-|          |                    |see all)                                     |
-+----------+--------------------+---------------------------------------------+
