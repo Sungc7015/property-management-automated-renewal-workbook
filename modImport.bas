@@ -474,7 +474,6 @@ Private Sub FillMTMRows(cfg As PropConfig, ws As Worksheet, _
         End If
 
         ' Write columns
-        ws.Cells(r, 1).Value = "MTM"
         ws.Cells(r, 3).Value = CStr(arr(0))
         ws.Cells(r, 4).Value = CStr(arr(1))
         ws.Cells(r, 5).Value = CDbl(arr(3))
@@ -484,7 +483,10 @@ Private Sub FillMTMRows(cfg As PropConfig, ws As Worksheet, _
         If lAvg > 0 Then ws.Cells(r, 13).Value = lAvg
         If hasGrid And newLease > 0 Then ws.Cells(r, 14).Value = CLng(newLease)
         If IsDate(arr(4)) Then ws.Cells(r, 16).Value = CDate(arr(4))
-        If Trim(CStr(ws.Cells(r, 20).Value)) = "" Then ws.Cells(r, 20).Value = "MTM"
+        Dim mtmCell As Range: Set mtmCell = ws.Cells(r, 20)
+        If Trim(CStr(mtmCell.Value)) = "" Then mtmCell.Value = "MTM"
+        mtmCell.Interior.Color = RGB(255, 255, 0)
+        mtmCell.Font.Bold = True
         If occAvg > 0 Then ws.Cells(r, 24).Value = occAvg
 
 NextMTMRow:

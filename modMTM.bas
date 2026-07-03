@@ -428,8 +428,10 @@ Private Sub PlaceUnitInSection(mws As Worksheet, unitNum As String, grp As Strin
     If Trim(CStr(mws.Cells(blankRow, 5).Value)) = "" Then
         If Not IsEmpty(currentRent) And IsNumeric(currentRent) Then mws.Cells(blankRow, 5).Value = CDbl(currentRent)
     End If
-    If Trim(CStr(mws.Cells(blankRow, 20).Value)) = "" Then _
-        mws.Cells(blankRow, 20).Value = "MTM"
+    Dim mtmCell As Range: Set mtmCell = mws.Cells(blankRow, 20)
+    If Trim(CStr(mtmCell.Value)) = "" Then mtmCell.Value = "MTM"
+    mtmCell.Interior.Color = RGB(255, 255, 0)
+    mtmCell.Font.Bold = True
 End Sub
 
 ' ----------------------------------------------------------------
