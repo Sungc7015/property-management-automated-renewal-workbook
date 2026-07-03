@@ -422,10 +422,26 @@ End Sub
 
 ' ----------------------------------------------------------------
 '  ReadYardiMTM  -  returns all MTM-occupied units (past/non-date
-'                   expiry) as a Dictionary keyed by unit number.
-'                   Value = Array(name, fpCode, marketRent, actualRent, expiryVal)
+'                   expiry), PLUS short-term-lease units (future
+'                   expiry but current lease term < 12 months per
+'                   the RealPage Renewal Offer Analysis report), as
+'                   a Dictionary keyed by unit number.
+'
+'                   rpU()/rpCnt - RealPage data from ReadRP, used to
+'                   look up each unit's current lease term. Pass an
+'                   empty array and rpCnt = 0 if the RealPage report
+'                   wasn't provided this run (short-term detection
+'                   simply finds nothing; existing MTM behavior is
+'                   unaffected).
+'
+'                   Value = Array(name, fpCode, marketRent, actualRent,
+'                                 expiryVal, category, curTerm, nextInc)
+'                     category = "MTM" or "ShortTerm"
+'                     curTerm  = current lease term (months), "ShortTerm" only, else 0
+'                     nextInc  = computed Next Increase date, "ShortTerm" only, else empty
 ' ----------------------------------------------------------------
-Public Function ReadYardiMTM(cfg As PropConfig, wb As Workbook) As Object
+Public Function ReadYardiMTM(cfg As PropConfig, wb As Workbook, _
+                              rpU() As Variant, rpCnt As Long) As Object
     Dim dict As Object: Set dict = CreateObject("Scripting.Dictionary")
     dict.CompareMode = 1   ' vbTextCompare
 
@@ -462,18 +478,41 @@ Public Function ReadYardiMTM(cfg As PropConfig, wb As Workbook) As Object
         If Not IsNumeric(actRaw) Then GoTo NextRow
         If CDbl(actRaw) <= 0 Then GoTo NextRow
 
-        ' Keep only past-date or non-date expiry (opposite of ReadYardi)
+        ' Keep only past-date or non-date expiry (opposite of ReadYardi) --
+        ' PLUS future-expiry units whose current lease term is < 12 months
+        ' (short-term lease, per RealPage Renewal Offer Analysis report).
         Dim expCell As Variant: expCell = ws.Cells(r, cE).Value
         Dim isMTM As Boolean: isMTM = False
         Dim expiryVal As Variant
+        Dim cat As String: cat = "MTM"
+        Dim curTermOut As Long: curTermOut = 0
+        Dim nextIncOut As Variant
         If IsDate(expCell) Then
             If CDate(expCell) < Date Then
                 isMTM = True
                 expiryVal = CDate(expCell)
+                cat = "MTM"
+            Else
+                If rpCnt > 0 Then
+                    Dim dummyInc As Double, curTerm As Long
+                    If LookupRP(rpU, rpCnt, u, dummyInc, curTerm) Then
+                        If curTerm > 0 And curTerm < 12 Then
+                            isMTM = True
+                            expiryVal = CDate(expCell)
+                            cat = "ShortTerm"
+                            curTermOut = curTerm
+                            Dim nextInc As Date
+                            nextInc = DateAdd("m", 12 - curTerm, CDate(expCell))
+                            If Day(nextInc) <> 1 Then nextInc = DateSerial(Year(nextInc), Month(nextInc) + 1, 1)
+                            nextIncOut = nextInc
+                        End If
+                    End If
+                End If
             End If
         ElseIf Trim(CStr(expCell)) <> "" Then
             isMTM = True
             expiryVal = Trim(CStr(expCell))
+            cat = "MTM"
         End If
         If Not isMTM Then GoTo NextRow
 
@@ -482,7 +521,10 @@ Public Function ReadYardiMTM(cfg As PropConfig, wb As Workbook) As Object
                               Trim(CStr(ws.Cells(r, cT).Value)), _
                               ws.Cells(r, cM).Value, _
                               CDbl(actRaw), _
-                              expiryVal)
+                              expiryVal, _
+                              cat, _
+                              curTermOut, _
+                              nextIncOut)
         End If
 NextRow:
     Next r

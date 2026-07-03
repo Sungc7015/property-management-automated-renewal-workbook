@@ -141,8 +141,19 @@ Private Function DoImport(cfg As PropConfig, mNum As Integer, yr As Integer, _
     Set yardiWB = Workbooks.Open(yardiPath, ReadOnly:=True, UpdateLinks:=False)
     Dim mthUnits() As Variant, mthCnt As Long
     ReadYardi cfg, yardiWB, mNum, yr, mthUnits, mthCnt
+
+    Dim rpUnits() As Variant, rpCnt As Long: rpCnt = 0
+    If rpPath <> "" Then
+        If Dir(rpPath) <> "" Then
+            Dim rpWB As Workbook
+            Set rpWB = Workbooks.Open(rpPath, ReadOnly:=True, UpdateLinks:=False)
+            ReadRP rpWB, rpUnits, rpCnt
+            rpWB.Close False
+        End If
+    End If
+
     Dim mtmDict As Object
-    Set mtmDict = ReadYardiMTM(cfg, yardiWB)
+    Set mtmDict = ReadYardiMTM(cfg, yardiWB, rpUnits, rpCnt)
     yardiWB.Close False
 
     Dim fpAvgs() As Long
@@ -153,16 +164,6 @@ Private Function DoImport(cfg As PropConfig, mNum As Integer, yr As Integer, _
             Set statsWB = Workbooks.Open(statsPath, ReadOnly:=True, UpdateLinks:=False)
             ReadUnitStats cfg, statsWB, fpAvgs
             statsWB.Close False
-        End If
-    End If
-
-    Dim rpUnits() As Variant, rpCnt As Long: rpCnt = 0
-    If rpPath <> "" Then
-        If Dir(rpPath) <> "" Then
-            Dim rpWB As Workbook
-            Set rpWB = Workbooks.Open(rpPath, ReadOnly:=True, UpdateLinks:=False)
-            ReadRP rpWB, rpUnits, rpCnt
-            rpWB.Close False
         End If
     End If
 

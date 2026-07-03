@@ -5,7 +5,7 @@ Option Explicit
 '  modMTM  -  MTM Tracker Sheet refresh handler and import tools.
 '
 '  Reads: modConfig (PropConfig, LoadConfig, BAR_GREY, GetGroupForCode)
-'         modReaders (PickFile, ReadYardiMTM)
+'         modReaders (PickFile, ReadYardiMTM, ReadRP)
 '         modSheetUtils (SheetExists, IsSectionBar, MonthSheetName)
 '
 '  Column layout (A-K):
@@ -39,12 +39,25 @@ Public Sub RefreshMTMSheet()
     yardiPath = PickFile("Select Yardi Rent Roll for MTM Refresh", "xlsx")
     If yardiPath = "" Then Exit Sub
 
+    MsgBox "Select your REALPAGE RENEWAL OFFER ANALYSIS (.csv) to also flag short-term-lease units." & vbCrLf & _
+           "Click Cancel to skip (existing MTM detection will still run normally).", vbInformation, "Refresh MTM Tracker"
+    Dim rpPath As String: rpPath = PickFile("Select RealPage Renewal Offer Analysis", "csv")
+    Dim rpUnits() As Variant, rpCnt As Long: rpCnt = 0
+    If rpPath <> "" Then
+        If Dir(rpPath) <> "" Then
+            Dim rpWB As Workbook
+            Set rpWB = Workbooks.Open(rpPath, ReadOnly:=True, UpdateLinks:=False)
+            ReadRP rpWB, rpUnits, rpCnt
+            rpWB.Close False
+        End If
+    End If
+
     Dim yardiWB As Workbook
     On Error GoTo ErrHandler
     Set yardiWB = Workbooks.Open(yardiPath, ReadOnly:=True, UpdateLinks:=False)
 
     Dim mtmDict As Object
-    Set mtmDict = ReadYardiMTM(cfg, yardiWB)
+    Set mtmDict = ReadYardiMTM(cfg, yardiWB, rpUnits, rpCnt)
     yardiWB.Close False
     Set yardiWB = Nothing
 
@@ -221,6 +234,11 @@ Private Sub FormatMTMSheet(ws As Worksheet, cfg As PropConfig)
         Type:=xlExpression, Formula1:="=LEFT($I3,1)=""" & ChrW(9888) & """")
     fcR.Interior.Color = RGB(252, 220, 220)
 
+    Dim fcS As Object
+    Set fcS = ws.Range("A3:K2000").FormatConditions.Add( _
+        Type:=xlExpression, Formula1:="=$I3=""Short Term""")
+    fcS.Interior.Color = RGB(255, 230, 153)
+
     With ws.Parent.Windows(1)
         .FreezePanes = False
     End With
@@ -259,7 +277,10 @@ End Sub
 
 ' ----------------------------------------------------------------
 '  DoRefreshMTM  -  update/flag/add units; rebuild checkboxes after sort.
-'  Cols F (Last Increase), J (Notes), K (checkbox) are preserved.
+'  For "MTM" category rows: cols F (Last Increase), I (Status),
+'  J (Notes), K (checkbox) are preserved (manual/existing values).
+'  For "ShortTerm" category rows: I/H/J are system-calculated and
+'  are recomputed/overwritten on every refresh.
 ' ----------------------------------------------------------------
 Private Sub DoRefreshMTM(ws As Worksheet, mtmDict As Object)
     Dim lastRow As Long
@@ -286,8 +307,15 @@ Private Sub DoRefreshMTM(ws As Worksheet, mtmDict As Object)
             If IsDate(arr(4)) Then ws.Cells(r, 4).Value = CDate(arr(4))
             ws.Cells(r, 5).Value = CDbl(arr(3))
             If IsNumeric(arr(2)) Then ws.Cells(r, 7).Value = CDbl(arr(2))
-            Dim liVal As Variant: liVal = ws.Cells(r, 6).Value
-            If IsDate(liVal) Then ws.Cells(r, 8).Value = NextIncreaseDate(CDate(liVal))
+            If CStr(arr(5)) = "ShortTerm" Then
+                ' System-calculated category - recompute/overwrite every refresh
+                ws.Cells(r, 9).Value = "Short Term"
+                If IsDate(arr(7)) Then ws.Cells(r, 8).Value = CDate(arr(7))
+                ws.Cells(r, 10).Value = "Short term lease: " & arr(6) & " months, next increase date is " & Format(arr(7), "m/d/yyyy")
+            Else
+                Dim liVal As Variant: liVal = ws.Cells(r, 6).Value
+                If IsDate(liVal) Then ws.Cells(r, 8).Value = NextIncreaseDate(CDate(liVal))
+            End If
         Else
             newUnits(key) = arr
         End If
@@ -295,7 +323,8 @@ Private Sub DoRefreshMTM(ws As Worksheet, mtmDict As Object)
 
     For Each key In sheetRows.Keys
         If Not mtmDict.Exists(key) Then
-            If Trim(CStr(ws.Cells(sheetRows(key), 9).Value)) = "Active MTM" Then
+            Dim curStatus As String: curStatus = Trim(CStr(ws.Cells(sheetRows(key), 9).Value))
+            If curStatus = "Active MTM" Or curStatus = "Short Term" Then
                 ws.Cells(sheetRows(key), 9).Value = ChrW(9888) & " Review - may have renewed"
             End If
         End If
@@ -312,7 +341,13 @@ Private Sub DoRefreshMTM(ws As Worksheet, mtmDict As Object)
         If IsDate(arr(4)) Then ws.Cells(nextRow, 4).Value = CDate(arr(4))
         ws.Cells(nextRow, 5).Value = CDbl(arr(3))
         If IsNumeric(arr(2)) Then ws.Cells(nextRow, 7).Value = CDbl(arr(2))
-        ws.Cells(nextRow, 9).Value  = "Active MTM"
+        If CStr(arr(5)) = "ShortTerm" Then
+            ws.Cells(nextRow, 9).Value = "Short Term"
+            If IsDate(arr(7)) Then ws.Cells(nextRow, 8).Value = CDate(arr(7))
+            ws.Cells(nextRow, 10).Value = "Short term lease: " & arr(6) & " months, next increase date is " & Format(arr(7), "m/d/yyyy")
+        Else
+            ws.Cells(nextRow, 9).Value  = "Active MTM"
+        End If
         ws.Cells(nextRow, 11).Value = False
         nextRow = nextRow + 1
     Next key
@@ -331,8 +366,11 @@ End Sub
 
 ' ----------------------------------------------------------------
 '  SyncCheckboxes  -  deletes all mtmChk_* Form Control checkboxes
-'                     and recreates one per data row, linked to col K.
-'                     Called after every sort so checkboxes stay aligned.
+'                     and recreates one per data row (except rows with
+'                     Status = "Short Term", which are informational-
+'                     only and not yet eligible for import), linked
+'                     to col K. Called after every sort so checkboxes
+'                     stay aligned.
 ' ----------------------------------------------------------------
 Private Sub SyncCheckboxes(ws As Worksheet)
     ' Collect names first (can't delete while iterating the collection)
@@ -359,6 +397,7 @@ Private Sub SyncCheckboxes(ws As Worksheet)
     Dim r As Long
     For r = DATA_START To lastRow
         If Trim(CStr(ws.Cells(r, 1).Value)) = "" Then GoTo NextCB
+        If Trim(CStr(ws.Cells(r, 9).Value)) = "Short Term" Then GoTo NextCB
         Dim cell As Range: Set cell = ws.Cells(r, 11)
         Dim newCB As CheckBox
         Set newCB = ws.CheckBoxes.Add(cell.Left + 1, cell.Top + 1, _
