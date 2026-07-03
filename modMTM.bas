@@ -13,7 +13,7 @@ Option Explicit
 '    F Last Increase (manual) | G Market Rent | H Next Increase (calc)
 '    I Status | J Notes | K [checkbox — linked to cell, TRUE/FALSE]
 '
-'  Version 2.2.0
+'  Version 2.3.0
 ' ================================================================
 
 Private Const MTM_SHEET   As String = "MTM"

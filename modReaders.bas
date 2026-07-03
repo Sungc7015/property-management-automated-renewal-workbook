@@ -6,7 +6,7 @@ Option Explicit
 '                 Move-in Box Score) and related helpers.
 '                 Pure data extraction - no sheet writes here.
 '
-'  Version 2.2.0 - carved from modRenewalImporter v1.2.1
+'  Version 2.3.0 - carved from modRenewalImporter v1.2.1
 ' ================================================================
 
 Private mUnmapped As String

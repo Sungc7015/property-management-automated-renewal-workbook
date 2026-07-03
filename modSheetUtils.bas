@@ -10,7 +10,7 @@ Option Explicit
 '  in InsertRowCopyFromSource. Called by modImport.FillSheet and
 '  modDynamic.InsertBufferRow.
 '
-'  Version 2.2.0 - carved from modRenewalImporter + modRenewalDynamic
+'  Version 2.3.0 - carved from modRenewalImporter + modRenewalDynamic
 '                  + modPropertySetup v1.2.1
 ' ================================================================
 

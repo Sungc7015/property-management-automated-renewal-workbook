@@ -17,7 +17,7 @@ Option Explicit
 '  (modSheetUtils), which handles the unmerge/insert/format/formula
 '  sequence and prevents the "merged cell" crash.
 '
-'  Version 2.2.0 - refactored from modRenewalDynamic v1.2.1
+'  Version 2.3.0 - refactored from modRenewalDynamic v1.2.1
 ' ================================================================
 
 Private mBufCache As Long

@@ -4,7 +4,7 @@ Option Explicit
 ' ================================================================
 '  modOverview  -  multi-year renewal summary sheet builder.
 '
-'  Version 2.2.0 - carved from modPropertySetup v1.2.1
+'  Version 2.3.0 - carved from modPropertySetup v1.2.1
 ' ================================================================
 
 Public Sub CreateOverviewSheet()

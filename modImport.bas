@@ -16,7 +16,7 @@ Private Const DEBUG_IMPORT As Boolean = False
 '                        SheetExists, MonthName*, MonthSheetName,
 '                        MonthYearPrefix)
 '
-'  Version 2.2.0 - refactored from modRenewalImporter v1.2.1
+'  Version 2.3.0 - refactored from modRenewalImporter v1.2.1
 '  Bug fix: merged-cell paste crash resolved in FillSheet.
 ' ================================================================
 

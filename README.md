@@ -1,6 +1,6 @@
 # Property Management – Automated Renewal Workbook
 
-**Version 2.1.1 (2026-06-22)**  
+**Version 2.3.0 (2026-07-03)**  
 
 A VBA-powered Excel system for property management teams to automate monthly lease renewal tracking. It ingests reports directly from Yardi and RealPage, populates pre-structured month sheets organized by floor plan, and builds a rolling multi-year performance summary — eliminating manual data entry and providing consistent renewal analytics across your portfolio.
 
@@ -443,6 +443,8 @@ The `.xls` file you selected contains embedded VBA code, which is not present in
 
 | Version | Date | Changes |
 |---|---|---|
+| 2.3.0 | 2026-07-03 | MTM tracker carries Name/Floor Plan/Current Rent on import; RealPage report enriches MTM rows; MTM tag highlighted instead of column A; short-term-lease detection via Resident Lease Expirations report (RealPage fallback). |
+| 2.2.0 | 2026-07-03 | Added modMTM: MTM tracker with checkbox import, FillMTMRows auto-fill. |
 | 2.1.1 | 2026-06-22 | Bug fixes and hardening: fixed workbook resource leak when import errors mid-run; replaced `Integer` with `Long` for month/year variables to prevent overflow; added missing column-0 guard in `ReadUnitRentsGrid`; fixed import prompt column labels (L/X were mislabelled K/W); added `HasVBProject` security check on Move-in Box Score; removed stale buffer-row cache so Setup sheet changes take effect immediately; replaced magic-number literals with named constants; removed full-sheet font assignments that caused slow month sheet generation. |
 | 2.1.0 | 2026-06-21 | Refactored from 3 monolithic modules into 8 focused modules. `modConfig`, `modSheetUtils`, `modReaders`, `modImport`, `modDynamic`, `modSetup`, `modOverview`, `modAdmin` separated for maintainability. |
 | 2.0.0 | — | Fixed merged-cell crash during row insertion. 4-step unmerge/insert/format/formula sequence consolidated in `InsertRowCopyFromSource`. |

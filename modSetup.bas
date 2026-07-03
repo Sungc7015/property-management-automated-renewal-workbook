@@ -5,7 +5,7 @@ Option Explicit
 '  modSetup  -  Property Setup sheet creation and month sheet
 '               generation.
 '
-'  Version 2.2.0 - carved from modPropertySetup v1.2.1
+'  Version 2.3.0 - carved from modPropertySetup v1.2.1
 ' ================================================================
 
 ' ================================================================

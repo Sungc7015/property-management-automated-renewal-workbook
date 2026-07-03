@@ -7,7 +7,7 @@ Option Explicit
 '  SetupWorkbook: adds 5 buttons to the Overview sheet.
 '  HealthCheck:   verifies module version, config, sheets, names.
 '
-'  Version 2.2.0 - carved from modRenewalDynamic + modPropertySetup v1.2.1
+'  Version 2.3.0 - carved from modRenewalDynamic + modPropertySetup v1.2.1
 ' ================================================================
 
 ' ================================================================
