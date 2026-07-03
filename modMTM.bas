@@ -11,26 +11,20 @@ Option Explicit
 '  Column layout (A-K):
 '    A Unit | B Name | C Floor Plan | D Lease Expiry | E Current Rent
 '    F Last Increase (manual) | G Market Rent | H Next Increase (calc)
-'    I Status | J Notes | K Select (☑/☐)
+'    I Status | J Notes | K [checkbox — linked to cell, TRUE/FALSE]
 '
 '  Version 2.1.0
 ' ================================================================
 
-Private Const MTM_SHEET  As String = "MTM"
-Private Const DATA_START As Long = 3    ' row 1=title, row 2=headers, row 3+=data
-Private Const COL_COUNT  As Long = 11   ' A through K
-
-Private Const CHK_ON  As String = "☑"  ' ChrW(9745)
-Private Const CHK_OFF As String = "☐"  ' ChrW(9744)
+Private Const MTM_SHEET   As String = "MTM"
+Private Const DATA_START  As Long = 3
+Private Const COL_COUNT   As Long = 11
+Private Const CB_PREFIX   As String = "mtmChk_"
 
 ' ================================================================
 '  PUBLIC — button handlers
 ' ================================================================
 
-' ----------------------------------------------------------------
-'  RefreshMTMSheet  -  prompts for Yardi Rent Roll and refreshes
-'                      the MTM tracker. Creates the tab if missing.
-' ----------------------------------------------------------------
 Public Sub RefreshMTMSheet()
     Dim cfg As PropConfig
     If Not LoadConfig(cfg, True) Then Exit Sub
@@ -81,10 +75,8 @@ ErrHandler:
 End Sub
 
 ' ----------------------------------------------------------------
-'  ImportSelectedMTM  -  places ☑ rows into the correct month
+'  ImportSelectedMTM  -  places checked units into the correct month
 '                        sheet based on Next Increase date.
-'                        Run the monthly import afterwards to fill
-'                        in rent data via FillMTMRows.
 ' ----------------------------------------------------------------
 Public Sub ImportSelectedMTM()
     Dim cfg As PropConfig
@@ -105,11 +97,11 @@ Public Sub ImportSelectedMTM()
     Application.ScreenUpdating = False
 
     Dim imported As Long: imported = 0
-    Dim skipped As String: skipped = ""
+    Dim skipped  As String: skipped = ""
     Dim r As Long
 
     For r = DATA_START To lastRow
-        If Trim(CStr(ws.Cells(r, 11).Value)) <> CHK_ON Then GoTo NextImportRow
+        If ws.Cells(r, 11).Value <> True Then GoTo NextImportRow
 
         Dim unitNum As String: unitNum = Trim(CStr(ws.Cells(r, 1).Value))
         Dim fpCode  As String: fpCode  = Trim(CStr(ws.Cells(r, 3).Value))
@@ -118,35 +110,30 @@ Public Sub ImportSelectedMTM()
         If unitNum = "" Then GoTo NextImportRow
 
         If Not IsDate(niCell) Then
-            skipped = skipped & "  " & unitNum & " — no Next Increase date" & vbCrLf
+            skipped = skipped & "  " & unitNum & " - no Next Increase date" & vbCrLf
             GoTo NextImportRow
         End If
 
-        Dim mNum    As Long: mNum = Month(CDate(niCell))
-        Dim yr      As Long: yr   = Year(CDate(niCell))
-        Dim shName  As String: shName = MonthSheetName(mNum, yr)
+        Dim mNum   As Long: mNum = Month(CDate(niCell))
+        Dim yr     As Long: yr   = Year(CDate(niCell))
+        Dim shName As String: shName = MonthSheetName(mNum, yr)
 
         If Not SheetExists(shName) Then
-            skipped = skipped & "  " & unitNum & " — sheet '" & shName & "' not found" & vbCrLf
+            skipped = skipped & "  " & unitNum & " - sheet '" & shName & "' not found" & vbCrLf
             GoTo NextImportRow
         End If
 
         Dim grp As String: grp = GetGroupForCode(cfg, fpCode)
         If grp = "" Then
-            skipped = skipped & "  " & unitNum & " — floor plan '" & fpCode & "' not in config" & vbCrLf
+            skipped = skipped & "  " & unitNum & " - floor plan '" & fpCode & "' not in config" & vbCrLf
             GoTo NextImportRow
         End If
 
         Dim mws As Worksheet: Set mws = ThisWorkbook.Sheets(shName)
-        Dim placed As Boolean: placed = PlaceUnitInSection(mws, unitNum, grp)
+        PlaceUnitInSection mws, unitNum, grp
 
-        If placed Then
-            ws.Cells(r, 11).Value = CHK_OFF
-            imported = imported + 1
-        Else
-            skipped = skipped & "  " & unitNum & " — already on " & shName & vbCrLf
-            ws.Cells(r, 11).Value = CHK_OFF
-        End If
+        ws.Cells(r, 11).Value = False   ' uncheck via linked cell
+        imported = imported + 1
 
 NextImportRow:
     Next r
@@ -160,35 +147,26 @@ NextImportRow:
     MsgBox msg, vbInformation, "Import MTM"
 End Sub
 
-' ----------------------------------------------------------------
-'  SelectAllMTM  -  checks every unit in the tracker.
-' ----------------------------------------------------------------
 Public Sub SelectAllMTM()
     If Not SheetExists(MTM_SHEET) Then Exit Sub
     Dim ws As Worksheet: Set ws = ThisWorkbook.Sheets(MTM_SHEET)
     Dim lastRow As Long: lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
     If lastRow < DATA_START Then Exit Sub
-    ws.Range(ws.Cells(DATA_START, 11), ws.Cells(lastRow, 11)).Value = CHK_ON
+    ws.Range(ws.Cells(DATA_START, 11), ws.Cells(lastRow, 11)).Value = True
 End Sub
 
-' ----------------------------------------------------------------
-'  ClearSelectionMTM  -  unchecks every unit in the tracker.
-' ----------------------------------------------------------------
 Public Sub ClearSelectionMTM()
     If Not SheetExists(MTM_SHEET) Then Exit Sub
     Dim ws As Worksheet: Set ws = ThisWorkbook.Sheets(MTM_SHEET)
     Dim lastRow As Long: lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
     If lastRow < DATA_START Then Exit Sub
-    ws.Range(ws.Cells(DATA_START, 11), ws.Cells(lastRow, 11)).Value = CHK_OFF
+    ws.Range(ws.Cells(DATA_START, 11), ws.Cells(lastRow, 11)).Value = False
 End Sub
 
 ' ================================================================
-'  PRIVATE — formatting, refresh logic, helpers
+'  PRIVATE
 ' ================================================================
 
-' ----------------------------------------------------------------
-'  FormatMTMSheet  -  monthly-sheet-style formatting.
-' ----------------------------------------------------------------
 Private Sub FormatMTMSheet(ws As Worksheet, cfg As PropConfig)
     ws.Cells.Font.Name = "Calibri"
     ws.Cells.Font.Size = 11
@@ -213,21 +191,13 @@ Private Sub FormatMTMSheet(ws As Worksheet, cfg As PropConfig)
     ws.Range("F3:F2000").NumberFormat = "mm/dd/yy;@"
     ws.Range("G3:G2000").NumberFormat = "$#,##0"
     ws.Range("H3:H2000").NumberFormat = "mm/dd/yy;@"
+    ws.Range("K3:K2000").NumberFormat = ";;;"   ' hide TRUE/FALSE — checkbox shows state
 
     With ws.Range("A3:K2000")
         .HorizontalAlignment = xlCenter
         .VerticalAlignment = xlCenter
     End With
     ws.Range("J3:J2000").HorizontalAlignment = xlLeft
-
-    ' Select column dropdown: ☑ or ☐
-    With ws.Range("K3:K2000")
-        .Validation.Delete
-        .Validation.Add Type:=xlValidateList, AlertStyle:=xlValidAlertInformation, _
-                        Formula1:=CHK_ON & "," & CHK_OFF
-        .Validation.IgnoreBlank = True
-        .Validation.InCellDropdown = True
-    End With
 
     With ws.Range("A2:K2")
         .Borders.LineStyle = xlContinuous
@@ -255,9 +225,6 @@ Private Sub FormatMTMSheet(ws As Worksheet, cfg As PropConfig)
     ws.Parent.Windows(1).DisplayGridlines = False
 End Sub
 
-' ----------------------------------------------------------------
-'  WriteHeaders  -  title bar (row 1) and column headers (row 2).
-' ----------------------------------------------------------------
 Private Sub WriteHeaders(ws As Worksheet, cfg As PropConfig)
     ws.Range("A1:K1").Merge
     With ws.Range("A1")
@@ -271,7 +238,7 @@ Private Sub WriteHeaders(ws As Worksheet, cfg As PropConfig)
 
     Dim headers As Variant
     headers = Array("Unit", "Name", "Floor Plan", "Lease Expiry", "Current Rent", _
-                    "Last Increase", "Market Rent", "Next Increase", "Status", "Notes", "Select")
+                    "Last Increase", "Market Rent", "Next Increase", "Status", "Notes", "Import")
     Dim i As Long
     For i = 0 To UBound(headers)
         ws.Cells(2, i + 1).Value = headers(i)
@@ -287,10 +254,8 @@ Private Sub WriteHeaders(ws As Worksheet, cfg As PropConfig)
 End Sub
 
 ' ----------------------------------------------------------------
-'  DoRefreshMTM  -  update existing rows, flag gone units, add new.
-'
-'  Cols F (Last Increase), J (Notes), K (Select) are NEVER
-'  overwritten — they are preserved across every refresh.
+'  DoRefreshMTM  -  update/flag/add units; rebuild checkboxes after sort.
+'  Cols F (Last Increase), J (Notes), K (checkbox) are preserved.
 ' ----------------------------------------------------------------
 Private Sub DoRefreshMTM(ws As Worksheet, mtmDict As Object)
     Dim lastRow As Long
@@ -316,11 +281,9 @@ Private Sub DoRefreshMTM(ws As Worksheet, mtmDict As Object)
             ws.Cells(r, 3).Value = CStr(arr(1))
             If IsDate(arr(4)) Then ws.Cells(r, 4).Value = CDate(arr(4))
             ws.Cells(r, 5).Value = CDbl(arr(3))
-            ' col 6 (F Last Increase) — manual, never touched
             If IsNumeric(arr(2)) Then ws.Cells(r, 7).Value = CDbl(arr(2))
             Dim liVal As Variant: liVal = ws.Cells(r, 6).Value
             If IsDate(liVal) Then ws.Cells(r, 8).Value = NextIncreaseDate(CDate(liVal))
-            ' cols 9 (I Status), 10 (J Notes), 11 (K Select) — preserved
         Else
             newUnits(key) = arr
         End If
@@ -339,35 +302,77 @@ Private Sub DoRefreshMTM(ws As Worksheet, mtmDict As Object)
     If nextRow < DATA_START Then nextRow = DATA_START
     For Each key In newUnits.Keys
         arr = newUnits(key)
-        ws.Cells(nextRow, 1).Value  = CStr(key)
-        ws.Cells(nextRow, 2).Value  = CStr(arr(0))
-        ws.Cells(nextRow, 3).Value  = CStr(arr(1))
+        ws.Cells(nextRow, 1).Value = CStr(key)
+        ws.Cells(nextRow, 2).Value = CStr(arr(0))
+        ws.Cells(nextRow, 3).Value = CStr(arr(1))
         If IsDate(arr(4)) Then ws.Cells(nextRow, 4).Value = CDate(arr(4))
-        ws.Cells(nextRow, 5).Value  = CDbl(arr(3))
+        ws.Cells(nextRow, 5).Value = CDbl(arr(3))
         If IsNumeric(arr(2)) Then ws.Cells(nextRow, 7).Value = CDbl(arr(2))
         ws.Cells(nextRow, 9).Value  = "Active MTM"
-        ws.Cells(nextRow, 11).Value = CHK_OFF
+        ws.Cells(nextRow, 11).Value = False
         nextRow = nextRow + 1
     Next key
 
+    ' Sort by Next Increase (col H); col K TRUE/FALSE values sort with their rows
     Dim lastRowAfter As Long
     lastRowAfter = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
     If lastRowAfter >= DATA_START Then
         ws.Range(ws.Cells(DATA_START, 1), ws.Cells(lastRowAfter, COL_COUNT)).Sort _
             Key1:=ws.Cells(DATA_START, 8), Order1:=xlAscending, Header:=xlNo
     End If
+
+    ' Rebuild checkboxes so they align with the sorted rows
+    SyncCheckboxes ws
 End Sub
 
 ' ----------------------------------------------------------------
-'  PlaceUnitInSection  -  finds the matching floor plan section on
-'                         the month sheet and writes the apt# in the
-'                         first blank col-B row (inserts if needed).
-'                         Returns False if unit was already present.
+'  SyncCheckboxes  -  deletes all mtmChk_* Form Control checkboxes
+'                     and recreates one per data row, linked to col K.
+'                     Called after every sort so checkboxes stay aligned.
 ' ----------------------------------------------------------------
-Private Function PlaceUnitInSection(mws As Worksheet, unitNum As String, grp As String) As Boolean
-    PlaceUnitInSection = False
-    Dim lastUsed As Long: lastUsed = mws.UsedRange.Row + mws.UsedRange.Rows.Count - 1
+Private Sub SyncCheckboxes(ws As Worksheet)
+    ' Collect names first (can't delete while iterating the collection)
+    Dim names() As String
+    Dim cnt As Long: cnt = 0
+    Dim cb As CheckBox
+    For Each cb In ws.CheckBoxes
+        If Left(cb.Name, Len(CB_PREFIX)) = CB_PREFIX Then
+            ReDim Preserve names(cnt)
+            names(cnt) = cb.Name
+            cnt = cnt + 1
+        End If
+    Next cb
+    Dim i As Long
+    For i = 0 To cnt - 1
+        On Error Resume Next
+        ws.CheckBoxes(names(i)).Delete
+        On Error GoTo 0
+    Next i
 
+    Dim lastRow As Long: lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    If lastRow < DATA_START Then Exit Sub
+
+    Dim r As Long
+    For r = DATA_START To lastRow
+        If Trim(CStr(ws.Cells(r, 1).Value)) = "" Then GoTo NextCB
+        Dim cell As Range: Set cell = ws.Cells(r, 11)
+        Dim newCB As CheckBox
+        Set newCB = ws.CheckBoxes.Add(cell.Left + 1, cell.Top + 1, _
+                                      cell.Width - 2, cell.Height - 2)
+        newCB.Caption = ""
+        newCB.Name = CB_PREFIX & r
+        newCB.LinkedCell = cell.Address(External:=False)
+NextCB:
+    Next r
+End Sub
+
+' ----------------------------------------------------------------
+'  PlaceUnitInSection  -  finds the right floor plan section on the
+'                         month sheet and writes the apt# to a blank
+'                         col-B row (inserts one if needed).
+' ----------------------------------------------------------------
+Private Sub PlaceUnitInSection(mws As Worksheet, unitNum As String, grp As String)
+    Dim lastUsed As Long: lastUsed = mws.UsedRange.Row + mws.UsedRange.Rows.Count - 1
     Dim secFirst As Long: secFirst = 0
     Dim secLast  As Long: secLast  = 0
     Dim inTarget As Boolean: inTarget = False
@@ -384,10 +389,7 @@ Private Function PlaceUnitInSection(mws As Worksheet, unitNum As String, grp As 
         End If
 
         If IsSectionBar(mws, r) Then
-            If inTarget Then
-                secLast = r - 1
-                Exit For
-            End If
+            If inTarget Then secLast = r - 1: Exit For
             If LCase(aVal) = LCase(grp) Then
                 inTarget = True
                 secFirst = r + 1
@@ -395,21 +397,18 @@ Private Function PlaceUnitInSection(mws As Worksheet, unitNum As String, grp As 
         End If
     Next r
     If inTarget And secLast = 0 Then secLast = lastUsed
+    If secFirst = 0 Then Exit Sub
 
-    If secFirst = 0 Then Exit Function  ' section not found
-
-    ' Check if unit is already in the section
+    ' Skip if unit already present
     For r = secFirst To secLast
-        If Trim(CStr(mws.Cells(r, 2).Value)) = unitNum Then Exit Function
+        If Trim(CStr(mws.Cells(r, 2).Value)) = unitNum Then Exit Sub
     Next r
 
-    ' Find first blank col-B row in section
+    ' Find blank col-B row or insert one
     Dim blankRow As Long: blankRow = 0
     For r = secFirst To secLast
         If Trim(CStr(mws.Cells(r, 2).Value)) = "" Then blankRow = r: Exit For
     Next r
-
-    ' No blank row — insert one at bottom of section
     If blankRow = 0 Then
         blankRow = secLast + 1
         mws.Rows(blankRow).Insert Shift:=xlDown, CopyOrigin:=xlFormatFromLeftOrAbove
@@ -418,9 +417,7 @@ Private Function PlaceUnitInSection(mws As Worksheet, unitNum As String, grp As 
     mws.Cells(blankRow, 2).Value = unitNum
     If Trim(CStr(mws.Cells(blankRow, 20).Value)) = "" Then _
         mws.Cells(blankRow, 20).Value = "MTM"
-
-    PlaceUnitInSection = True
-End Function
+End Sub
 
 ' ----------------------------------------------------------------
 '  NextIncreaseDate  -  Last Increase + 12 months, rounded up to
