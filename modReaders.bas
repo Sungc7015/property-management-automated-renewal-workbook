@@ -420,19 +420,85 @@ NextMI:
     Next i
 End Sub
 
+' ================================================================
+'  READ RESIDENT LEASE EXPIRATIONS (.xlsx)  ->  Unit, Lease From, Lease To
+'  Fills a Dictionary keyed by unit number with Array(leaseFromDate,
+'  leaseToDate), the exact lease commencement/expiration dates. This
+'  is the PREFERRED source for short-term-lease detection in
+'  ReadYardiMTM (see below) - exact dates instead of an approximated
+'  term. Returns an empty dictionary if the header row (found by
+'  searching for a cell trimmed-equal to "Lease From") or any of the
+'  three columns (Unit, Lease From, Lease To) can't be located -
+'  caller treats this the same as "report not provided".
+' ================================================================
+Public Function ReadLeaseExpirations(wb As Workbook) As Object
+    Dim dict As Object: Set dict = CreateObject("Scripting.Dictionary")
+    dict.CompareMode = 1   ' vbTextCompare
+
+    Dim ws As Worksheet: Set ws = wb.Sheets(1)
+
+    Dim hRow As Long: hRow = 0
+    Dim cFrom As Long: cFrom = 0
+    Dim r As Long, c As Long, lastCol As Long
+    For r = 1 To 15
+        lastCol = ws.Cells(r, ws.Columns.Count).End(xlToLeft).Column
+        For c = 1 To lastCol
+            If Trim(CStr(ws.Cells(r, c).Value)) = "Lease From" Then
+                hRow = r: cFrom = c: Exit For
+            End If
+        Next c
+        If hRow > 0 Then Exit For
+    Next r
+    If hRow = 0 Then Set ReadLeaseExpirations = dict: Exit Function
+
+    Dim cUnit As Long: cUnit = FindHeaderColExact(ws, hRow, "Unit")
+    Dim cTo As Long:   cTo = FindHeaderColExact(ws, hRow, "Lease To")
+    If cUnit = 0 Or cTo = 0 Then Set ReadLeaseExpirations = dict: Exit Function
+
+    Dim lastRow As Long: lastRow = ws.Cells(ws.Rows.Count, cUnit).End(xlUp).Row
+
+    For r = hRow + 1 To lastRow
+        Dim u As String: u = Trim(CStr(ws.Cells(r, cUnit).Value))
+        If u = "" Then GoTo NextLE
+        If InStr(1, u, "Total", vbTextCompare) = 1 Then GoTo NextLE
+        If u = "Expiring Leases" Or u = "M-to-M" Then GoTo NextLE
+        If InStr(u, "-") = 0 Then GoTo NextLE
+
+        Dim fromCell As Variant: fromCell = ws.Cells(r, cFrom).Value
+        Dim toCell As Variant:   toCell = ws.Cells(r, cTo).Value
+        If Not IsDate(fromCell) Then GoTo NextLE
+        If Not IsDate(toCell) Then GoTo NextLE
+
+        If Not dict.Exists(u) Then
+            dict.Add u, Array(CDate(fromCell), CDate(toCell))
+        End If
+NextLE:
+    Next r
+
+    Set ReadLeaseExpirations = dict
+End Function
+
 ' ----------------------------------------------------------------
 '  ReadYardiMTM  -  returns all MTM-occupied units (past/non-date
 '                   expiry), PLUS short-term-lease units (future
-'                   expiry but current lease term < 12 months per
-'                   the RealPage Renewal Offer Analysis report), as
-'                   a Dictionary keyed by unit number.
+'                   expiry but a short current lease term), as a
+'                   Dictionary keyed by unit number.
 '
-'                   rpU()/rpCnt - RealPage data from ReadRP, used to
-'                   look up each unit's current lease term. Pass an
-'                   empty array and rpCnt = 0 if the RealPage report
-'                   wasn't provided this run (short-term detection
+'                   Short-term-lease term is determined with this
+'                   precedence:
+'                     1. PREFERRED - leaseExpDict (from
+'                        ReadLeaseExpirations, i.e. the Resident Lease
+'                        Expirations report), which gives the exact
+'                        lease commencement/expiration dates. Pass
+'                        Nothing if that report wasn't provided.
+'                     2. FALLBACK - rpU()/rpCnt (RealPage Renewal Offer
+'                        Analysis data from ReadRP), used to look up
+'                        each unit's approximate current lease term.
+'                        Pass an empty array and rpCnt = 0 if the
+'                        RealPage report wasn't provided either.
+'                   If neither source has a match, short-term detection
 '                   simply finds nothing; existing MTM behavior is
-'                   unaffected).
+'                   unaffected.
 '
 '                   Value = Array(name, fpCode, marketRent, actualRent,
 '                                 expiryVal, category, curTerm, nextInc)
@@ -441,7 +507,8 @@ End Sub
 '                     nextInc  = computed Next Increase date, "ShortTerm" only, else empty
 ' ----------------------------------------------------------------
 Public Function ReadYardiMTM(cfg As PropConfig, wb As Workbook, _
-                              rpU() As Variant, rpCnt As Long) As Object
+                              rpU() As Variant, rpCnt As Long, _
+                              leaseExpDict As Object) As Object
     Dim dict As Object: Set dict = CreateObject("Scripting.Dictionary")
     dict.CompareMode = 1   ' vbTextCompare
 
@@ -493,18 +560,46 @@ Public Function ReadYardiMTM(cfg As PropConfig, wb As Workbook, _
                 expiryVal = CDate(expCell)
                 cat = "MTM"
             Else
-                If rpCnt > 0 Then
-                    Dim dummyInc As Double, curTerm As Long
-                    If LookupRP(rpU, rpCnt, u, dummyInc, curTerm) Then
-                        If curTerm > 0 And curTerm < 12 Then
+                Dim shortTermMatched As Boolean: shortTermMatched = False
+
+                ' Preferred: exact commencement/expiration dates from the
+                ' Resident Lease Expirations report.
+                If Not leaseExpDict Is Nothing Then
+                    If leaseExpDict.Exists(u) Then
+                        Dim leArr As Variant: leArr = leaseExpDict(u)
+                        Dim leaseFrom As Date: leaseFrom = CDate(leArr(0))
+                        Dim leaseTo As Date:   leaseTo = CDate(leArr(1))
+                        Dim termMonths As Long: termMonths = DateDiff("m", leaseFrom, leaseTo)
+                        If termMonths > 0 And termMonths < 12 Then
                             isMTM = True
                             expiryVal = CDate(expCell)
                             cat = "ShortTerm"
-                            curTermOut = curTerm
-                            Dim nextInc As Date
-                            nextInc = DateAdd("m", 12 - curTerm, CDate(expCell))
-                            If Day(nextInc) <> 1 Then nextInc = DateSerial(Year(nextInc), Month(nextInc) + 1, 1)
-                            nextIncOut = nextInc
+                            curTermOut = termMonths
+                            Dim nextIncLE As Date
+                            nextIncLE = DateAdd("m", 12, leaseFrom)
+                            If Day(nextIncLE) <> 1 Then nextIncLE = DateSerial(Year(nextIncLE), Month(nextIncLE) + 1, 1)
+                            nextIncOut = nextIncLE
+                            shortTermMatched = True
+                        End If
+                    End If
+                End If
+
+                ' Fallback: approximate current lease term from the
+                ' RealPage Renewal Offer Analysis report.
+                If Not shortTermMatched Then
+                    If rpCnt > 0 Then
+                        Dim dummyInc As Double, curTerm As Long
+                        If LookupRP(rpU, rpCnt, u, dummyInc, curTerm) Then
+                            If curTerm > 0 And curTerm < 12 Then
+                                isMTM = True
+                                expiryVal = CDate(expCell)
+                                cat = "ShortTerm"
+                                curTermOut = curTerm
+                                Dim nextInc As Date
+                                nextInc = DateAdd("m", 12 - curTerm, CDate(expCell))
+                                If Day(nextInc) <> 1 Then nextInc = DateSerial(Year(nextInc), Month(nextInc) + 1, 1)
+                                nextIncOut = nextInc
+                            End If
                         End If
                     End If
                 End If

@@ -153,7 +153,7 @@ Private Function DoImport(cfg As PropConfig, mNum As Integer, yr As Integer, _
     End If
 
     Dim mtmDict As Object
-    Set mtmDict = ReadYardiMTM(cfg, yardiWB, rpUnits, rpCnt)
+    Set mtmDict = ReadYardiMTM(cfg, yardiWB, rpUnits, rpCnt, Nothing)
     yardiWB.Close False
 
     Dim fpAvgs() As Long

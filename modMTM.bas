@@ -5,7 +5,7 @@ Option Explicit
 '  modMTM  -  MTM Tracker Sheet refresh handler and import tools.
 '
 '  Reads: modConfig (PropConfig, LoadConfig, BAR_GREY, GetGroupForCode)
-'         modReaders (PickFile, ReadYardiMTM, ReadRP)
+'         modReaders (PickFile, ReadYardiMTM, ReadRP, ReadLeaseExpirations)
 '         modSheetUtils (SheetExists, IsSectionBar, MonthSheetName)
 '
 '  Column layout (A-K):
@@ -52,12 +52,25 @@ Public Sub RefreshMTMSheet()
         End If
     End If
 
+    MsgBox "Select your RESIDENT LEASE EXPIRATIONS (.xlsx) for exact short-term-lease commencement dates." & vbCrLf & _
+           "Click Cancel to skip (short-term detection will fall back to the RealPage report if provided, or be skipped).", vbInformation, "Refresh MTM Tracker"
+    Dim lePath As String: lePath = PickFile("Select Resident Lease Expirations", "xlsx")
+    Dim leaseExpDict As Object: Set leaseExpDict = Nothing
+    If lePath <> "" Then
+        If Dir(lePath) <> "" Then
+            Dim leWB As Workbook
+            Set leWB = Workbooks.Open(lePath, ReadOnly:=True, UpdateLinks:=False)
+            Set leaseExpDict = ReadLeaseExpirations(leWB)
+            leWB.Close False
+        End If
+    End If
+
     Dim yardiWB As Workbook
     On Error GoTo ErrHandler
     Set yardiWB = Workbooks.Open(yardiPath, ReadOnly:=True, UpdateLinks:=False)
 
     Dim mtmDict As Object
-    Set mtmDict = ReadYardiMTM(cfg, yardiWB, rpUnits, rpCnt)
+    Set mtmDict = ReadYardiMTM(cfg, yardiWB, rpUnits, rpCnt, leaseExpDict)
     yardiWB.Close False
     Set yardiWB = Nothing
 
