@@ -430,7 +430,13 @@ End Function
 
 ' ----------------------------------------------------------------
 '  FillMTMRows  -  fills MTM rows on the month sheet that were
-'                  skipped by FillSheet (col B has apt#, col E blank).
+'                  skipped by FillSheet (col B has apt#). No longer
+'                  gates on col E being blank, since ImportSelectedMTM
+'                  may have already pre-filled Name/Floor Plan/Current
+'                  Rent from the MTM tracker. This month's fresh report
+'                  data for Name (col C), Floor Plan (col D), and
+'                  Current Rent (col E) takes precedence and overwrites
+'                  whatever was previously written there.
 ' ----------------------------------------------------------------
 Private Sub FillMTMRows(cfg As PropConfig, ws As Worksheet, _
                          mtmDict As Object, _
@@ -451,7 +457,6 @@ Private Sub FillMTMRows(cfg As PropConfig, ws As Worksheet, _
 
         Dim bVal As String: bVal = Trim(CStr(ws.Cells(r, 2).Value))
         If bVal = "" Then GoTo NextMTMRow
-        If Trim(CStr(ws.Cells(r, 5).Value)) <> "" Then GoTo NextMTMRow
         If Not mtmDict.Exists(bVal) Then GoTo NextMTMRow
 
         Dim arr As Variant: arr = mtmDict(bVal)
@@ -470,8 +475,8 @@ Private Sub FillMTMRows(cfg As PropConfig, ws As Worksheet, _
 
         ' Write columns
         ws.Cells(r, 1).Value = "MTM"
-        If Trim(CStr(ws.Cells(r, 3).Value)) = "" Then ws.Cells(r, 3).Value = CStr(arr(0))
-        If Trim(CStr(ws.Cells(r, 4).Value)) = "" Then ws.Cells(r, 4).Value = CStr(arr(1))
+        ws.Cells(r, 3).Value = CStr(arr(0))
+        ws.Cells(r, 4).Value = CStr(arr(1))
         ws.Cells(r, 5).Value = CDbl(arr(3))
         If hasGrid And bestOff > 0 And curEff > 0 Then ws.Cells(r, 6).Value = CLng(bestOff - curEff)
         If IsNumeric(arr(2)) Then ws.Cells(r, 11).Value = CDbl(arr(2))

@@ -76,7 +76,9 @@ End Sub
 
 ' ----------------------------------------------------------------
 '  ImportSelectedMTM  -  places checked units into the correct month
-'                        sheet based on Next Increase date.
+'                        sheet based on Next Increase date. Also carries
+'                        over Name, Floor Plan, and Current Rent from the
+'                        MTM tracker row, not just the apt#.
 ' ----------------------------------------------------------------
 Public Sub ImportSelectedMTM()
     Dim cfg As PropConfig
@@ -103,8 +105,10 @@ Public Sub ImportSelectedMTM()
     For r = DATA_START To lastRow
         If ws.Cells(r, 11).Value <> True Then GoTo NextImportRow
 
-        Dim unitNum As String: unitNum = Trim(CStr(ws.Cells(r, 1).Value))
-        Dim fpCode  As String: fpCode  = Trim(CStr(ws.Cells(r, 3).Value))
+        Dim unitNum      As String:  unitNum      = Trim(CStr(ws.Cells(r, 1).Value))
+        Dim residentName As String:  residentName = Trim(CStr(ws.Cells(r, 2).Value))
+        Dim fpCode       As String:  fpCode       = Trim(CStr(ws.Cells(r, 3).Value))
+        Dim currentRent  As Variant: currentRent  = ws.Cells(r, 5).Value
         Dim niCell  As Variant: niCell = ws.Cells(r, 8).Value
 
         If unitNum = "" Then GoTo NextImportRow
@@ -130,7 +134,7 @@ Public Sub ImportSelectedMTM()
         End If
 
         Dim mws As Worksheet: Set mws = ThisWorkbook.Sheets(shName)
-        PlaceUnitInSection mws, unitNum, grp
+        PlaceUnitInSection mws, unitNum, grp, residentName, fpCode, currentRent
 
         ws.Cells(r, 11).Value = False   ' uncheck via linked cell
         imported = imported + 1
@@ -368,10 +372,12 @@ End Sub
 
 ' ----------------------------------------------------------------
 '  PlaceUnitInSection  -  finds the right floor plan section on the
-'                         month sheet and writes the apt# to a blank
-'                         col-B row (inserts one if needed).
+'                         month sheet and writes the apt#, Name, Floor
+'                         Plan, and Current Rent to a blank col-B row
+'                         (inserts one if needed).
 ' ----------------------------------------------------------------
-Private Sub PlaceUnitInSection(mws As Worksheet, unitNum As String, grp As String)
+Private Sub PlaceUnitInSection(mws As Worksheet, unitNum As String, grp As String, _
+                                residentName As String, fpCode As String, currentRent As Variant)
     Dim lastUsed As Long: lastUsed = mws.UsedRange.Row + mws.UsedRange.Rows.Count - 1
     Dim secFirst As Long: secFirst = 0
     Dim secLast  As Long: secLast  = 0
@@ -415,6 +421,13 @@ Private Sub PlaceUnitInSection(mws As Worksheet, unitNum As String, grp As Strin
     End If
 
     mws.Cells(blankRow, 2).Value = unitNum
+    If Trim(CStr(mws.Cells(blankRow, 3).Value)) = "" Then _
+        mws.Cells(blankRow, 3).Value = residentName
+    If Trim(CStr(mws.Cells(blankRow, 4).Value)) = "" Then _
+        mws.Cells(blankRow, 4).Value = fpCode
+    If Trim(CStr(mws.Cells(blankRow, 5).Value)) = "" Then
+        If IsNumeric(currentRent) Then mws.Cells(blankRow, 5).Value = CDbl(currentRent)
+    End If
     If Trim(CStr(mws.Cells(blankRow, 20).Value)) = "" Then _
         mws.Cells(blankRow, 20).Value = "MTM"
 End Sub
