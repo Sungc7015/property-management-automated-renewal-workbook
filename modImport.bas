@@ -188,7 +188,7 @@ Private Function DoImport(cfg As PropConfig, mNum As Integer, yr As Integer, _
     End If
 
     FillSheet cfg, ws, mthUnits, mthCnt, fpAvgs, fpL, rpUnits, rpCnt, gridUnits, gridCnt
-    FillMTMRows cfg, ws, mtmDict, fpAvgs, fpL, gridUnits, gridCnt
+    FillMTMRows cfg, ws, mtmDict, fpAvgs, fpL, rpUnits, rpCnt, gridUnits, gridCnt
 
     Dim skipped As String: skipped = ""
     If statsPath = "" Then skipped = skipped & "  Col K, W - Yardi Unit Statistics not provided" & vbCrLf
@@ -441,6 +441,7 @@ End Function
 Private Sub FillMTMRows(cfg As PropConfig, ws As Worksheet, _
                          mtmDict As Object, _
                          fpAvgs() As Long, fpL() As Long, _
+                         rpU() As Variant, rpCnt As Long, _
                          gridU() As Variant, gridCnt As Long)
     If mtmDict Is Nothing Then Exit Sub
     If mtmDict.Count = 0 Then Exit Sub
@@ -466,6 +467,10 @@ Private Sub FillMTMRows(cfg As PropConfig, ws As Worksheet, _
         Dim occAvg As Long: occAvg = LookupFP(cfg, fpAvgs, grp)
         Dim lAvg As Long:   lAvg  = LookupFP(cfg, fpL, grp)
 
+        Dim ysInc As Double, rpCurTerm As Long
+        Dim hasRP As Boolean: hasRP = False
+        If rpCnt > 0 Then hasRP = LookupRP(rpU, rpCnt, bVal, ysInc, rpCurTerm)
+
         Dim newLease As Double, bestOff As Double, curEff As Double
         Dim bestTerm As Long, gridCurTerm As Long
         Dim hasGrid As Boolean: hasGrid = False
@@ -477,7 +482,11 @@ Private Sub FillMTMRows(cfg As PropConfig, ws As Worksheet, _
         ws.Cells(r, 3).Value = CStr(arr(0))
         ws.Cells(r, 4).Value = CStr(arr(1))
         ws.Cells(r, 5).Value = CDbl(arr(3))
-        If hasGrid And bestOff > 0 And curEff > 0 Then ws.Cells(r, 6).Value = CLng(bestOff - curEff)
+        If hasGrid And bestOff > 0 And curEff > 0 Then
+            ws.Cells(r, 6).Value = CLng(bestOff - curEff)
+        ElseIf hasRP And ysInc <> 0 Then
+            ws.Cells(r, 6).Value = CLng(ysInc)
+        End If
         If IsNumeric(arr(2)) Then ws.Cells(r, 11).Value = CDbl(arr(2))
         If occAvg > 0 Then ws.Cells(r, 12).Value = occAvg
         If lAvg > 0 Then ws.Cells(r, 13).Value = lAvg
