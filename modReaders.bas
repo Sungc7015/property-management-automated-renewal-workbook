@@ -569,7 +569,7 @@ Public Function ReadYardiMTM(cfg As PropConfig, wb As Workbook, _
                         Dim leArr As Variant: leArr = leaseExpDict(u)
                         Dim leaseFrom As Date: leaseFrom = CDate(leArr(0))
                         Dim leaseTo As Date:   leaseTo = CDate(leArr(1))
-                        Dim termMonths As Long: termMonths = DateDiff("m", leaseFrom, leaseTo)
+                        Dim termMonths As Long: termMonths = DateDiff("m", leaseFrom, leaseTo + 1)
                         If termMonths > 0 And termMonths < 12 Then
                             isMTM = True
                             expiryVal = CDate(expCell)
