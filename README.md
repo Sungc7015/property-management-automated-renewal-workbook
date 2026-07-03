@@ -12,7 +12,7 @@ A VBA-powered Excel system for property management teams to automate monthly lea
 2. [Prerequisites](#prerequisites)
 3. [First-Time Setup](#first-time-setup)
    - [Step 1 – Enable Macro Trust Settings](#step-1--enable-macro-trust-settings)
-   - [Step 2 – Import All 8 Modules](#step-2--import-all-8-modules)
+   - [Step 2 – Import All 9 Modules](#step-2--import-all-9-modules)
    - [Step 3 – Wire Up the Change Event](#step-3--wire-up-the-change-event)
    - [Step 4 – Run SetupWorkbook](#step-4--run-setupworkbook)
    - [Step 5 – Configure the Property Setup Sheet](#step-5--configure-the-property-setup-sheet)
@@ -22,13 +22,14 @@ A VBA-powered Excel system for property management teams to automate monthly lea
    - [Source Reports Required](#source-reports-required)
    - [Running the Import](#running-the-import)
    - [Manual Fields to Fill After Import](#manual-fields-to-fill-after-import)
-5. [Column Reference (Month Sheets)](#column-reference-month-sheets)
-6. [Overview Sheet](#overview-sheet)
-7. [Dynamic Row Insertion](#dynamic-row-insertion)
-8. [Health Check](#health-check)
-9. [Module Reference](#module-reference)
-10. [Troubleshooting](#troubleshooting)
-11. [Version History](#version-history)
+5. [MTM Tracker Workflow](#mtm-tracker-workflow)
+6. [Column Reference (Month Sheets)](#column-reference-month-sheets)
+7. [Overview Sheet](#overview-sheet)
+8. [Dynamic Row Insertion](#dynamic-row-insertion)
+9. [Health Check](#health-check)
+10. [Module Reference](#module-reference)
+11. [Troubleshooting](#troubleshooting)
+12. [Version History](#version-history)
 
 ---
 
@@ -69,11 +70,11 @@ Two settings must be enabled in Excel before importing the modules:
    - Check **Trust access to the VBA project object model**
 3. Click OK and restart Excel if prompted.
 
-> **Why:** The `SetupWorkbook` macro programmatically checks that all 8 modules are present before adding buttons. This requires VBA project object model access. Without it, setup falls back to a warning but still runs.
+> **Why:** The `SetupWorkbook` macro programmatically checks that all 8 core modules are present before adding buttons. This requires VBA project object model access. Without it, setup falls back to a warning but still runs. (`modMTM`, the 9th module, is not part of this automated check — see Step 2 — but must still be imported for the [MTM Tracker Workflow](#mtm-tracker-workflow) to work.)
 
 ---
 
-### Step 2 – Import All 8 Modules
+### Step 2 – Import All 9 Modules
 
 Open the VBA Editor (**Alt + F11**), then import every `.bas` file in this folder:
 
@@ -89,8 +90,9 @@ Open the VBA Editor (**Alt + F11**), then import every `.bas` file in this folde
 | 6 | `modSetup.bas` | Creates the Property Setup sheet and month sheets. Depends on modConfig, modSheetUtils. |
 | 7 | `modOverview.bas` | Builds the multi-year summary. Depends on modConfig, modSheetUtils. |
 | 8 | `modAdmin.bas` | One-time setup wizard and health check. Depends on all other modules. |
+| 9 | `modMTM.bas` | MTM tracker sheet refresh and import tools (see [MTM Tracker Workflow](#mtm-tracker-workflow)). Depends on modConfig, modReaders, modSheetUtils. **Not verified by `SetupWorkbook`'s module-presence check** — import it regardless. |
 
-After importing, the Project Explorer should show all 8 modules under your workbook's **Modules** folder. If any are missing, re-import them.
+After importing, the Project Explorer should show all 9 modules under your workbook's **Modules** folder. If any are missing, re-import them.
 
 ---
 
@@ -123,7 +125,7 @@ End Sub
    Press Enter. Alternatively, use **Macro → Run → modAdmin.SetupWorkbook**.
 
 2. SetupWorkbook will:
-   - Verify all 8 modules are imported
+   - Verify all 8 core modules are imported (`modMTM` is not included in this check — see [Step 2](#step-2--import-all-9-modules))
    - Find your Overview sheet (or use Sheet 1 if none exists)
    - Add 5 buttons to that sheet:
 
@@ -303,11 +305,97 @@ Review and spot-check the other imported columns, particularly:
 
 ---
 
+## MTM Tracker Workflow
+
+The MTM Tracker is a dedicated sheet (`MTM`) that tracks month-to-month units separately from the monthly renewal month sheets. It is built and refreshed with `modMTM.RefreshMTMSheet`, independent of the monthly `ImportMonthlyData` flow — though `ImportSelectedMTM` places tracked units onto month sheets, and `FillMTMRows` later enriches those rows during the next monthly import.
+
+### Refreshing the Tracker
+
+Click **Refresh MTM Tracker** (or run `modMTM.RefreshMTMSheet`). You'll be prompted for up to three files, in this order:
+
+| # | File | Required? | What it's used for |
+|---|---|---|---|
+| 1 | Yardi Rent Roll | **Yes** — Cancel aborts the refresh | Base source for all tracked units (unit, name, floor plan, current rent, market rent, lease expiry) |
+| 2 | RealPage Renewal Offer Analysis Report | Optional — Cancel to skip | Fallback source for short-term-lease detection (see below) |
+| 3 | Resident Lease Expirations report | Optional — Cancel to skip | Preferred source for short-term-lease detection (see below) |
+
+Skipping either optional report degrades gracefully — it only narrows what the tracker can detect for short-term leases. Existing "Active MTM" detection (based purely on the Yardi Rent Roll) is unaffected either way, and skipping one optional report has no effect on the other.
+
+`RefreshMTMSheet` creates the `MTM` sheet if it doesn't already exist, formats it, updates existing tracked units, flags units that have dropped out of the current scan for review, and adds any newly-detected units. Rows are re-sorted by Next Increase date after every refresh.
+
+### Tracker Column Layout
+
+| Col | Field | Notes |
+|---|---|---|
+| A | Unit | |
+| B | Name | |
+| C | Floor Plan | Yardi unit type code |
+| D | Lease Expiry | From Yardi Rent Roll |
+| E | Current Rent | From Yardi Rent Roll |
+| F | Last Increase | **Manual entry** — the date of the unit's last rent increase. Drives the calculated Next Increase date for `Active MTM` rows. |
+| G | Market Rent | From Yardi Rent Roll |
+| H | Next Increase | Calculated — see below |
+| I | Status | See [Status Column Values](#status-column-values) below |
+| J | Notes | Manual for `Active MTM` rows; auto-generated and auto-refreshed on every subsequent refresh for `Short Term` rows (system-calculated, not manual) |
+| K | Import | Form Control checkbox — check to include the row in the next `ImportSelectedMTM` run |
+
+### Status Column Values
+
+| Status | Highlight | Meaning |
+|---|---|---|
+| `Active MTM` | Green | The unit's Yardi lease expiry is already past-due (or a non-date value) — it's genuinely on a month-to-month basis today. |
+| `⚠ Review - may have renewed` | Red/pink | A previously-tracked unit that no longer shows up in the current Active MTM scan. It may have renewed — review needed. |
+| `Short Term` *(new in 2.3.0)* | Amber/orange | The unit still has a valid **future** lease expiry, but its actual lease term is under 12 months, so per company policy it can't be increased until 12 months after the lease's commencement date. These rows show **no Import checkbox** — informational only, since they aren't actually MTM yet. |
+
+For an `Active MTM` row, the Next Increase date only calculates once column F (Last Increase) is filled in manually: Next Increase = Last Increase + 12 months, rounded up to the 1st of the month.
+
+### Short-Term Lease Detection
+
+When a unit's Yardi lease expiry is still in the future, `RefreshMTMSheet` checks whether the lease's actual term is under 12 months. The term (and the resulting Next Increase date) is computed in this priority order:
+
+1. **Preferred — Resident Lease Expirations report provided.** Exact term = Lease To − Lease From. Next Increase = Lease From + 12 months, rounded up to the 1st of the month.
+2. **Fallback — Resident Lease Expirations not provided, but RealPage Renewal Offer Analysis was.** Approximate term is read from RealPage's "Current Lease | Term" field. Next Increase = Lease Expiry + (12 − term) months, rounded up to the 1st of the month.
+3. **Neither report provided.** Short-term detection is skipped for that refresh — existing Active MTM detection is unaffected either way.
+
+When a unit is flagged `Short Term`, column J (Notes) is automatically (re)written on every refresh with a sentence in this format:
+
+```
+Short term lease: X months, next increase date is M/D/YYYY
+```
+
+### Importing Selected Units (`ImportSelectedMTM`)
+
+Check the Import column (K) for the units you want to move onto a month sheet, then click **Import Selected MTM** (or run `modMTM.ImportSelectedMTM`). For each checked row, the unit is placed onto the correct month sheet — determined by its Next Increase date — in the correct floor-plan section.
+
+As of 2.3.0, `ImportSelectedMTM` also carries over the Resident Name, Floor Plan, and Current Rent from the tracker row onto the month sheet at the same time (previously it only wrote the apt#).
+
+### `FillMTMRows` (runs during the monthly import)
+
+`FillMTMRows` is not part of `RefreshMTMSheet` — it runs automatically as part of the normal monthly `ImportMonthlyData` import (see [Running the Import](#running-the-import)). It fills in additional fields on any month-sheet row that came from an MTM import, using that month's fresh report data:
+
+- As of 2.3.0, the monthly report data is allowed to **override** the Name / Floor Plan / Current Rent that `ImportSelectedMTM` carried over, in case the tracker snapshot was stale by import time.
+- The RealPage Renewal Offer Analysis report now also feeds these rows for column F, using the same grid-preferred / RealPage-fallback precedence used for regular renewal rows.
+- Column T (Current Term) shows a bold, yellow-highlighted `"MTM"` tag for these rows instead of a numeric term.
+- Column A (Renewal Status) is deliberately left untouched/blank for MTM rows — previously it was auto-set to `MTM` on every import; this was changed so column A stays a purely manual field. (See the [Column Reference](#column-reference-month-sheets) notes on columns A and T.)
+
+### Buttons
+
+`SetupWorkbook` does **not** add these buttons automatically — insert them yourself on the `MTM` sheet (**Insert → Form Controls → Button**, then assign the macro), the same way the [Step 4](#step-4--run-setupworkbook) buttons are added:
+
+| Button | Macro | Purpose |
+|---|---|---|
+| Refresh MTM Tracker | `modMTM.RefreshMTMSheet` | Build/update the MTM tracker from the Yardi Rent Roll (+ optional RealPage and Resident Lease Expirations reports) |
+| Import Selected MTM | `modMTM.ImportSelectedMTM` | Place checked tracker rows onto the correct month sheet |
+| Select All MTM | `modMTM.SelectAllMTM` | Check every Import checkbox on the tracker |
+| Clear Selection MTM | `modMTM.ClearSelectionMTM` | Uncheck every Import checkbox on the tracker |
+
+---
+
 ## Column Reference (Month Sheets)
 
 | Col | Letter | Field | Source |
 |---|---|---|---|
-| 1 | A | **Renewal Status** | **Manual entry** — dropdown: `Renewed`, `MTM`, `NTV` (Notice to Vacate), `Pending`. Drives row color (green = Renewed, pink = NTV, blue = MTM) and all Overview metrics (renewal count, signed revenue, capture ratio). This is the primary field you fill each month. |
+| 1 | A | **Renewal Status** | **Manual entry** — dropdown: `Renewed`, `MTM`, `NTV` (Notice to Vacate), `Pending`. Drives row color (green = Renewed, pink = NTV, blue = MTM) and all Overview metrics (renewal count, signed revenue, capture ratio). This is the primary field you fill each month. *Note: the automated [MTM Tracker Workflow](#mtm-tracker-workflow) never writes to this column — it stays purely manual. The automated MTM signal is the highlighted tag in column T instead, to avoid confusing it with the manual `MTM` dropdown value here.* |
 | 2 | B | Apt # (Unit Number) | Yardi Rent Roll |
 | 3 | C | Resident Name | Yardi Rent Roll |
 | 4 | D | Floor Plan (Yardi Code) | Yardi Rent Roll |
@@ -320,7 +408,7 @@ Review and spot-check the other imported columns, particularly:
 | 13 | M | Recent Move-In Avg Rent | Move-In Box Score (3-month avg by floor plan) |
 | 14 | N | New Lease Rent | Unit Rents Grid |
 | 16 | P | Lease Expiry Date | Yardi Rent Roll |
-| 20 | T | Current Lease Term (months) | Unit Rents Grid (preferred) or RP Renewal Offer Analysis |
+| 20 | T | Current Lease Term (months) | Unit Rents Grid (preferred) or RP Renewal Offer Analysis. *Rows placed by the [MTM Tracker Workflow](#mtm-tracker-workflow) (`ImportSelectedMTM`/`FillMTMRows`) show a bold, yellow-highlighted `"MTM"` tag here instead of a numeric term.* |
 | 21 | U | Recommended Lease Term / Notes | Unit Rents Grid (best offer term) |
 | 24 | X | Inplace Lease Avg | Yardi Unit Statistics (currently receives the same weighted average as col L) |
 
@@ -404,6 +492,7 @@ If broken named ranges are found, regenerate the affected month sheet by deletin
 | `modSetup` | Property Setup sheet creation and month sheet generation | `CreateSetupSheet`, `GenerateMonthSheets` |
 | `modOverview` | Builds and refreshes the multi-year renewal summary | `CreateOverviewSheet`, `RefreshOverview`, `FindOverviewName` |
 | `modAdmin` | One-time setup wizard and health check | `SetupWorkbook`, `HealthCheck` |
+| `modMTM` | MTM tracker sheet refresh, short-term-lease detection, and checkbox-based import to month sheets (see [MTM Tracker Workflow](#mtm-tracker-workflow)) | `RefreshMTMSheet`, `ImportSelectedMTM`, `SelectAllMTM`, `ClearSelectionMTM` |
 
 ---
 
