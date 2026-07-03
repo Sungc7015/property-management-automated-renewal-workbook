@@ -22,8 +22,9 @@ Public Sub RefreshMTMSheet()
     If Not LoadConfig(cfg, True) Then Exit Sub
 
     If Not SheetExists(MTM_SHEET) Then
-        MsgBox "Sheet """ & MTM_SHEET & """ not found in this workbook.", vbExclamation, "MTM Refresh"
-        Exit Sub
+        Dim newWs As Worksheet
+        Set newWs = ThisWorkbook.Sheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+        newWs.Name = MTM_SHEET
     End If
 
     Dim yardiPath As String
