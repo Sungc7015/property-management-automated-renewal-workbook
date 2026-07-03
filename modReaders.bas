@@ -419,3 +419,73 @@ NextMI:
         If fpCounts(i) > 0 Then fpL(i) = CLng(fpTotals(i) / fpCounts(i))
     Next i
 End Sub
+
+' ----------------------------------------------------------------
+'  ReadYardiMTM  -  returns all MTM-occupied units (past/non-date
+'                   expiry) as a Dictionary keyed by unit number.
+'                   Value = Array(name, fpCode, marketRent, actualRent, expiryVal)
+' ----------------------------------------------------------------
+Public Function ReadYardiMTM(cfg As PropConfig, wb As Workbook) As Object
+    Dim dict As Object: Set dict = CreateObject("Scripting.Dictionary")
+    dict.CompareMode = 1   ' vbTextCompare
+
+    Dim ws As Worksheet: Set ws = wb.Sheets(1)
+    Dim lastRow As Long: lastRow = ws.Cells(ws.Rows.Count, cfg.RRUnit).End(xlUp).Row
+
+    Dim cU As Long: cU = cfg.RRUnit
+    Dim cT As Long: cT = cfg.RRType
+    Dim cN As Long: cN = cfg.RRName
+    Dim cM As Long: cM = cfg.RRMarket
+    Dim cA As Long: cA = cfg.RRActual
+    Dim cE As Long: cE = cfg.RRExpiry
+
+    ' Find first data row (skip headers)
+    Dim dataStart As Long: dataStart = 0
+    Dim r As Long
+    For r = 1 To 50
+        Dim uVal As String: uVal = Trim(CStr(ws.Cells(r, cU).Value))
+        If uVal <> "" And MatchesAnyPattern(cfg, uVal) Then
+            dataStart = r: Exit For
+        End If
+    Next r
+    If dataStart = 0 Then Set ReadYardiMTM = dict: Exit Function
+
+    For r = dataStart To lastRow
+        Dim u As String: u = Trim(CStr(ws.Cells(r, cU).Value))
+        If u = "" Then GoTo NextRow
+        If Not MatchesAnyPattern(cfg, u) Then GoTo NextRow
+
+        Dim nm As String: nm = Trim(CStr(ws.Cells(r, cN).Value))
+        If nm = "" Or LCase(nm) = "vacant" Then GoTo NextRow
+
+        Dim actRaw As Variant: actRaw = ws.Cells(r, cA).Value
+        If Not IsNumeric(actRaw) Then GoTo NextRow
+        If CDbl(actRaw) <= 0 Then GoTo NextRow
+
+        ' Keep only past-date or non-date expiry (opposite of ReadYardi)
+        Dim expCell As Variant: expCell = ws.Cells(r, cE).Value
+        Dim isMTM As Boolean: isMTM = False
+        Dim expiryVal As Variant
+        If IsDate(expCell) Then
+            If CDate(expCell) < Date Then
+                isMTM = True
+                expiryVal = CDate(expCell)
+            End If
+        ElseIf Trim(CStr(expCell)) <> "" Then
+            isMTM = True
+            expiryVal = Trim(CStr(expCell))
+        End If
+        If Not isMTM Then GoTo NextRow
+
+        If Not dict.Exists(u) Then
+            dict.Add u, Array(nm, _
+                              Trim(CStr(ws.Cells(r, cT).Value)), _
+                              ws.Cells(r, cM).Value, _
+                              CDbl(actRaw), _
+                              expiryVal)
+        End If
+NextRow:
+    Next r
+
+    Set ReadYardiMTM = dict
+End Function

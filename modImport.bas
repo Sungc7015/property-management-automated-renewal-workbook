@@ -7,7 +7,7 @@ Private Const DEBUG_IMPORT As Boolean = False
 '  modImport  -  button handler, orchestration, and sheet writing.
 '
 '  Reads: modConfig (PropConfig, LoadConfig, GetGroupForCode, GroupIndex)
-'         modReaders (PickFile, ReadYardi, ReadUnitStats, ReadRP,
+'         modReaders (PickFile, ReadYardi, ReadYardiMTM, ReadUnitStats, ReadRP,
 '                     LookupRP, ReadUnitRentsGrid, LookupGrid,
 '                     ReadMovein, LookupFP, AddUnmapped,
 '                     UnmappedList, HasUnmapped, ResetUnmapped)
@@ -141,6 +141,8 @@ Private Function DoImport(cfg As PropConfig, mNum As Integer, yr As Integer, _
     Set yardiWB = Workbooks.Open(yardiPath, ReadOnly:=True, UpdateLinks:=False)
     Dim mthUnits() As Variant, mthCnt As Long
     ReadYardi cfg, yardiWB, mNum, yr, mthUnits, mthCnt
+    Dim mtmDict As Object
+    Set mtmDict = ReadYardiMTM(cfg, yardiWB)
     yardiWB.Close False
 
     Dim fpAvgs() As Long
@@ -186,6 +188,7 @@ Private Function DoImport(cfg As PropConfig, mNum As Integer, yr As Integer, _
     End If
 
     FillSheet cfg, ws, mthUnits, mthCnt, fpAvgs, fpL, rpUnits, rpCnt, gridUnits, gridCnt
+    FillMTMRows cfg, ws, mtmDict, fpAvgs, fpL, gridUnits, gridCnt
 
     Dim skipped As String: skipped = ""
     If statsPath = "" Then skipped = skipped & "  Col K, W - Yardi Unit Statistics not provided" & vbCrLf
@@ -424,3 +427,61 @@ Private Function CountAvail(ws As Worksheet, rFirst As Long, rLast As Long, _
     Next r
     CountAvail = n
 End Function
+
+' ----------------------------------------------------------------
+'  FillMTMRows  -  fills MTM rows on the month sheet that were
+'                  skipped by FillSheet (col B has apt#, col E blank).
+' ----------------------------------------------------------------
+Private Sub FillMTMRows(cfg As PropConfig, ws As Worksheet, _
+                         mtmDict As Object, _
+                         fpAvgs() As Long, fpL() As Long, _
+                         gridU() As Variant, gridCnt As Long)
+    If mtmDict Is Nothing Then Exit Sub
+    If mtmDict.Count = 0 Then Exit Sub
+
+    Dim lastUsed As Long
+    lastUsed = ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
+
+    Dim r As Long
+    For r = 3 To lastUsed
+        If IsSectionBar(ws, r) Then GoTo NextMTMRow
+
+        Dim dVal As String: dVal = Trim(CStr(ws.Cells(r, 4).Value))
+        If InStr(1, dVal, "Total", vbTextCompare) > 0 Then Exit For
+
+        Dim bVal As String: bVal = Trim(CStr(ws.Cells(r, 2).Value))
+        If bVal = "" Then GoTo NextMTMRow
+        If Trim(CStr(ws.Cells(r, 5).Value)) <> "" Then GoTo NextMTMRow
+        If Not mtmDict.Exists(bVal) Then GoTo NextMTMRow
+
+        Dim arr As Variant: arr = mtmDict(bVal)
+        ' arr(0)=name  arr(1)=fpCode  arr(2)=marketRent  arr(3)=actualRent  arr(4)=expiryVal
+
+        Dim grp As String: grp = GetGroupForCode(cfg, CStr(arr(1)))
+        Dim occAvg As Long: occAvg = LookupFP(cfg, fpAvgs, grp)
+        Dim lAvg As Long:   lAvg  = LookupFP(cfg, fpL, grp)
+
+        Dim newLease As Double, bestOff As Double, curEff As Double
+        Dim bestTerm As Long, gridCurTerm As Long
+        Dim hasGrid As Boolean: hasGrid = False
+        If gridCnt > 0 Then
+            hasGrid = LookupGrid(gridU, gridCnt, bVal, newLease, bestOff, curEff, bestTerm, gridCurTerm)
+        End If
+
+        ' Write columns
+        ws.Cells(r, 1).Value = "MTM"
+        If Trim(CStr(ws.Cells(r, 3).Value)) = "" Then ws.Cells(r, 3).Value = CStr(arr(0))
+        If Trim(CStr(ws.Cells(r, 4).Value)) = "" Then ws.Cells(r, 4).Value = CStr(arr(1))
+        ws.Cells(r, 5).Value = CDbl(arr(3))
+        If hasGrid And bestOff > 0 And curEff > 0 Then ws.Cells(r, 6).Value = CLng(bestOff - curEff)
+        If IsNumeric(arr(2)) Then ws.Cells(r, 11).Value = CDbl(arr(2))
+        If occAvg > 0 Then ws.Cells(r, 12).Value = occAvg
+        If lAvg > 0 Then ws.Cells(r, 13).Value = lAvg
+        If hasGrid And newLease > 0 Then ws.Cells(r, 14).Value = CLng(newLease)
+        If IsDate(arr(4)) Then ws.Cells(r, 16).Value = CDate(arr(4))
+        If Trim(CStr(ws.Cells(r, 20).Value)) = "" Then ws.Cells(r, 20).Value = "MTM"
+        If occAvg > 0 Then ws.Cells(r, 24).Value = occAvg
+
+NextMTMRow:
+    Next r
+End Sub
