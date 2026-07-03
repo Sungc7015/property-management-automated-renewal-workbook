@@ -426,7 +426,7 @@ Private Sub PlaceUnitInSection(mws As Worksheet, unitNum As String, grp As Strin
     If Trim(CStr(mws.Cells(blankRow, 4).Value)) = "" Then _
         mws.Cells(blankRow, 4).Value = fpCode
     If Trim(CStr(mws.Cells(blankRow, 5).Value)) = "" Then
-        If IsNumeric(currentRent) Then mws.Cells(blankRow, 5).Value = CDbl(currentRent)
+        If Not IsEmpty(currentRent) And IsNumeric(currentRent) Then mws.Cells(blankRow, 5).Value = CDbl(currentRent)
     End If
     If Trim(CStr(mws.Cells(blankRow, 20).Value)) = "" Then _
         mws.Cells(blankRow, 20).Value = "MTM"
