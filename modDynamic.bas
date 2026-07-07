@@ -17,23 +17,23 @@ Option Explicit
 '  (modSheetUtils), which handles the unmerge/insert/format/formula
 '  sequence and prevents the "merged cell" crash.
 '
-'  Version 2.3.0 - refactored from modRenewalDynamic v1.2.1
+'  Version 2.6.0 - removed the module-level Buffer Rows cache:
+'  GetBufferRows now reads PS.BufferRows fresh on every qualifying
+'  change event, so Setup-sheet edits take effect immediately
+'  (matching the documented behavior). The read only happens after
+'  the cheap short-circuit checks in HandleSheetChange pass.
 ' ================================================================
 
-Private mBufCache As Long
-
-Public Sub RefreshBufferCache()
-    mBufCache = 0
-End Sub
-
+' ----------------------------------------------------------------
+'  BUFFER ROWS  -  read fresh from the Setup sheet every time.
+' ----------------------------------------------------------------
 Private Function GetBufferRows() As Long
-    If mBufCache < 1 Then
-        On Error Resume Next
-        mBufCache = CLng(ThisWorkbook.Names("PS.BufferRows").RefersToRange.Value)
-        On Error GoTo 0
-        If mBufCache < 1 Then mBufCache = 2
-    End If
-    GetBufferRows = mBufCache
+    Dim n As Long: n = 0
+    On Error Resume Next
+    n = CLng(ThisWorkbook.Names("PS.BufferRows").RefersToRange.Value)
+    On Error GoTo 0
+    If n < 1 Then n = 2
+    GetBufferRows = n
 End Function
 
 ' ----------------------------------------------------------------
@@ -79,7 +79,7 @@ Private Sub InsertBufferRow(ws As Worksheet, insertAt As Long)
     InsertRowCopyFromSource ws, insertAt, copyFrom
 
     ' Clear unit-specific data. Cols L(12) M(13) X(24) are intentionally kept
-    ' from the row above â€” new buffer rows inherit floor-plan averages from peers.
+    ' from the row above - new buffer rows inherit floor-plan averages from peers.
     ' v1.1.0 columns: A(1) B(2) C(3) D(4) E(5) F(6) K(11) N(14) P(16) T(20) U(21)
     Dim clearCols As Variant
     clearCols = Array(1, 2, 3, 4, 5, 6, 11, 14, 16, 20, 21)

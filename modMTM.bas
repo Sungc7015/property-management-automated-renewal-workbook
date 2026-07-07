@@ -5,29 +5,62 @@ Option Explicit
 '  modMTM  -  MTM Tracker Sheet refresh handler and import tools.
 '
 '  Reads: modConfig (PropConfig, LoadConfig, BAR_GREY, GetGroupForCode)
-'         modReaders (PickFile, ReadYardiMTM, ReadRP, ReadLeaseExpirations)
+'         modReaders (MTMUnitRec, PickFile, ReadYardiMTM)
 '         modSheetUtils (SheetExists, IsSectionBar, MonthSheetName)
+'         modAdmin (AddButton - shared button-drawing helper)
 '
 '  Column layout (A-K):
 '    A Unit | B Name | C Floor Plan | D Lease Expiry | E Current Rent
 '    F Last Increase (manual) | G Market Rent | H Next Increase (calc)
-'    I Status | J Notes | K [checkbox — linked to cell, TRUE/FALSE]
+'    I Status | J Notes | K [checkbox - linked to cell, TRUE/FALSE]
 '
-'  Version 2.3.0
+'  The tracker is a single flat list, sorted by col H (Next Increase),
+'  built entirely from the Yardi Rent Roll (no RealPage or Resident
+'  Lease Expirations inputs). Status (col I) is a purely informational
+'  "Eligible"/"Not Yet Eligible" label - it has no effect on checkbox
+'  availability or import behavior. Next Increase = Last Increase + 1
+'  year + 1 day. If Last Increase is blank and the unit's lease expiry
+'  is more than 15 months past-due, a note is auto-written to col J
+'  (never overwriting an existing manual note) prompting the CM to
+'  verify the resident ledger.
+'
+'  Version 2.6.0 - EnsureMTMButtons added: RefreshMTMSheet now wires
+'  the 4 MTM buttons automatically the first time it creates the
+'  sheet, so no manual button setup is ever required (modAdmin
+'  .SetupWorkbook also calls this directly if the sheet already
+'  exists). WriteMTMDataRow now reads named fields off MTMUnitRec
+'  (modReaders) instead of a positional Array(...).
 ' ================================================================
 
-Private Const MTM_SHEET   As String = "MTM"
-Private Const DATA_START  As Long = 3
-Private Const COL_COUNT   As Long = 11
-Private Const CB_PREFIX   As String = "mtmChk_"
+Private Const MTM_SHEET     As String = "MTM"
+Private Const MTM_SHEET_OLD As String = "MTM & STL"
+Private Const DATA_START    As Long = 3
+Private Const COL_COUNT     As Long = 11
+Private Const CB_PREFIX     As String = "mtmChk_"
+
+' ----------------------------------------------------------------
+'  MigrateMTMSheetName  -  self-healing rename: if a workbook still
+'  has the sheet under its old name ("MTM & STL") and the current
+'  name ("MTM") doesn't exist yet, rename the sheet object in place
+'  (preserves all data/formatting - no copy). Called at the start of
+'  every public entry point that references MTM_SHEET, before the
+'  "does this sheet exist" checks.
+' ----------------------------------------------------------------
+Private Sub MigrateMTMSheetName()
+    If Not SheetExists(MTM_SHEET) And SheetExists(MTM_SHEET_OLD) Then
+        ThisWorkbook.Sheets(MTM_SHEET_OLD).Name = MTM_SHEET
+    End If
+End Sub
 
 ' ================================================================
-'  PUBLIC — button handlers
+'  PUBLIC - button handlers
 ' ================================================================
 
 Public Sub RefreshMTMSheet()
     Dim cfg As PropConfig
     If Not LoadConfig(cfg, True) Then Exit Sub
+
+    MigrateMTMSheetName
 
     If Not SheetExists(MTM_SHEET) Then
         Dim newWs As Worksheet
@@ -39,38 +72,13 @@ Public Sub RefreshMTMSheet()
     yardiPath = PickFile("Select Yardi Rent Roll for MTM Refresh", "xlsx")
     If yardiPath = "" Then Exit Sub
 
-    MsgBox "Select your REALPAGE RENEWAL OFFER ANALYSIS (.csv) to also flag short-term-lease units." & vbCrLf & _
-           "Click Cancel to skip (existing MTM detection will still run normally).", vbInformation, "Refresh MTM Tracker"
-    Dim rpPath As String: rpPath = PickFile("Select RealPage Renewal Offer Analysis", "csv")
-    Dim rpUnits() As Variant, rpCnt As Long: rpCnt = 0
-    If rpPath <> "" Then
-        If Dir(rpPath) <> "" Then
-            Dim rpWB As Workbook
-            Set rpWB = Workbooks.Open(rpPath, ReadOnly:=True, UpdateLinks:=False)
-            ReadRP rpWB, rpUnits, rpCnt
-            rpWB.Close False
-        End If
-    End If
-
-    MsgBox "Select your RESIDENT LEASE EXPIRATIONS (.xlsx) for exact short-term-lease commencement dates." & vbCrLf & _
-           "Click Cancel to skip (short-term detection will fall back to the RealPage report if provided, or be skipped).", vbInformation, "Refresh MTM Tracker"
-    Dim lePath As String: lePath = PickFile("Select Resident Lease Expirations", "xlsx")
-    Dim leaseExpDict As Object: Set leaseExpDict = Nothing
-    If lePath <> "" Then
-        If Dir(lePath) <> "" Then
-            Dim leWB As Workbook
-            Set leWB = Workbooks.Open(lePath, ReadOnly:=True, UpdateLinks:=False)
-            Set leaseExpDict = ReadLeaseExpirations(leWB)
-            leWB.Close False
-        End If
-    End If
-
     Dim yardiWB As Workbook
     On Error GoTo ErrHandler
     Set yardiWB = Workbooks.Open(yardiPath, ReadOnly:=True, UpdateLinks:=False)
 
+    Dim mtmRecs() As MTMUnitRec
     Dim mtmDict As Object
-    Set mtmDict = ReadYardiMTM(cfg, yardiWB, rpUnits, rpCnt, leaseExpDict)
+    Set mtmDict = ReadYardiMTM(cfg, yardiWB, mtmRecs)
     yardiWB.Close False
     Set yardiWB = Nothing
 
@@ -82,7 +90,8 @@ Public Sub RefreshMTMSheet()
 
     FormatMTMSheet ws, cfg
     WriteHeaders ws, cfg
-    DoRefreshMTM ws, mtmDict
+    DoRefreshMTM ws, mtmDict, mtmRecs
+    EnsureMTMButtons
 
     Application.Calculation = xlCalculationAutomatic
     Application.ScreenUpdating = True
@@ -110,6 +119,8 @@ Public Sub ImportSelectedMTM()
     Dim cfg As PropConfig
     If Not LoadConfig(cfg, True) Then Exit Sub
 
+    MigrateMTMSheetName
+
     If Not SheetExists(MTM_SHEET) Then
         MsgBox "MTM tracker sheet not found.", vbExclamation, "Import MTM"
         Exit Sub
@@ -122,6 +133,7 @@ Public Sub ImportSelectedMTM()
         Exit Sub
     End If
 
+    On Error GoTo ErrHandler
     Application.ScreenUpdating = False
 
     Dim imported As Long: imported = 0
@@ -175,29 +187,121 @@ NextImportRow:
     If skipped <> "" Then msg = msg & vbCrLf & vbCrLf & "Skipped:" & vbCrLf & skipped
     msg = msg & vbCrLf & vbCrLf & "Run the monthly import to fill in rent and other data."
     MsgBox msg, vbInformation, "Import MTM"
-End Sub
+    Exit Sub
 
-Public Sub SelectAllMTM()
-    If Not SheetExists(MTM_SHEET) Then Exit Sub
-    Dim ws As Worksheet: Set ws = ThisWorkbook.Sheets(MTM_SHEET)
-    Dim lastRow As Long: lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
-    If lastRow < DATA_START Then Exit Sub
-    ws.Range(ws.Cells(DATA_START, 11), ws.Cells(lastRow, 11)).Value = True
+ErrHandler:
+    Application.ScreenUpdating = True
+    MsgBox "Import MTM error: " & Err.Description, vbCritical, "Import MTM"
 End Sub
 
 Public Sub ClearSelectionMTM()
+    MigrateMTMSheetName
     If Not SheetExists(MTM_SHEET) Then Exit Sub
     Dim ws As Worksheet: Set ws = ThisWorkbook.Sheets(MTM_SHEET)
     Dim lastRow As Long: lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
     If lastRow < DATA_START Then Exit Sub
+
     ws.Range(ws.Cells(DATA_START, 11), ws.Cells(lastRow, 11)).Value = False
 End Sub
+
+' ----------------------------------------------------------------
+'  SortMTMSheet  -  manually re-sorts the MTM tab by col H (Next
+'  Increase), on demand, without running a full RefreshMTMSheet.
+'  Before sorting, recomputes each row's Next Increase (H) and Status
+'  (I) from its current Last Increase (F) value, so that manually
+'  typing in a new Last Increase date and clicking Sort actually
+'  produces the correct updated Next Increase/Status/row-position
+'  (previously this only re-sorted stale existing H/I values).
+' ----------------------------------------------------------------
+Public Sub SortMTMSheet()
+    MigrateMTMSheetName
+
+    If Not SheetExists(MTM_SHEET) Then
+        MsgBox "MTM tracker sheet not found.", vbExclamation, "Sort MTM"
+        Exit Sub
+    End If
+
+    Dim ws As Worksheet: Set ws = ThisWorkbook.Sheets(MTM_SHEET)
+    Dim lastRow As Long: lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    If lastRow < DATA_START Then
+        MsgBox "No MTM units to sort.", vbInformation, "Sort MTM"
+        Exit Sub
+    End If
+
+    On Error GoTo ErrHandler
+    Application.ScreenUpdating = False
+
+    ' Recompute H (Next Increase) and I (Status) from the current F value
+    ' before sorting, so manual edits to Last Increase are reflected.
+    ' targetEnd = last calendar date of the month containing today+90 days.
+    Dim tDate As Date: tDate = Now + 90
+    Dim targetEnd As Date: targetEnd = DateSerial(Year(tDate), Month(tDate) + 1, 1) - 1
+    Dim r As Long
+    For r = DATA_START To lastRow
+        Dim fVal As Variant: fVal = ws.Cells(r, 6).Value
+        If IsDate(fVal) Then
+            ws.Cells(r, 8).Value = NextIncreaseDate(CDate(fVal))
+        Else
+            ws.Cells(r, 8).Value = ""
+        End If
+        ws.Cells(r, 9).Value = MTMStatusLabel(ws.Cells(r, 8).Value, targetEnd)
+    Next r
+
+    ws.Range(ws.Cells(DATA_START, 1), ws.Cells(lastRow, COL_COUNT)).Sort _
+        Key1:=ws.Cells(DATA_START, 8), Order1:=xlAscending, Header:=xlNo
+
+    ' Re-sorting reshuffles which rows are odd/even - refresh the banding.
+    ApplyRowBanding ws, lastRow
+
+    ' Rebuild checkboxes at their new row positions
+    SyncCheckboxes ws
+
+    Application.ScreenUpdating = True
+    Exit Sub
+
+ErrHandler:
+    Application.ScreenUpdating = True
+    MsgBox "Sort MTM error: " & Err.Description, vbCritical, "Sort MTM"
+End Sub
+
+' ----------------------------------------------------------------
+'  EnsureMTMButtons  -  adds the 4 MTM tracker buttons to the MTM
+'  sheet if that sheet exists. Called from modAdmin.SetupWorkbook
+'  (in case the MTM sheet was already created) and from the end of
+'  RefreshMTMSheet (so first-run creation always wires the buttons
+'  automatically, with no separate manual step ever required).
+'  Returns True if the buttons were added, False if the MTM sheet
+'  does not exist yet.
+' ----------------------------------------------------------------
+Public Function EnsureMTMButtons() As Boolean
+    MigrateMTMSheetName
+    If Not SheetExists(MTM_SHEET) Then
+        EnsureMTMButtons = False
+        Exit Function
+    End If
+
+    Dim ws As Worksheet: Set ws = ThisWorkbook.Sheets(MTM_SHEET)
+
+    Dim gridLeft As Single, gridTop As Single
+    Dim btnW As Single, btnH As Single, gap As Single
+    gridLeft = ws.Cells(2, "M").Left
+    gridTop = ws.Cells(2, "M").Top
+    btnW = 160: btnH = 24: gap = 10
+
+    modAdmin.AddButton ws, "btn_RefreshMTM", "Refresh MTM Tracker", gridLeft, gridTop, "modMTM.RefreshMTMSheet"
+    modAdmin.AddButton ws, "btn_ImportMTM", "Import Selected MTM", gridLeft + btnW + gap, gridTop, "modMTM.ImportSelectedMTM"
+    modAdmin.AddButton ws, "btn_ClearMTM", "Clear Selection MTM", gridLeft, gridTop + btnH + gap, "modMTM.ClearSelectionMTM"
+    modAdmin.AddButton ws, "btn_SortMTM", "Sort MTM Tracker", gridLeft + btnW + gap, gridTop + btnH + gap, "modMTM.SortMTMSheet"
+
+    EnsureMTMButtons = True
+End Function
 
 ' ================================================================
 '  PRIVATE
 ' ================================================================
 
 Private Sub FormatMTMSheet(ws As Worksheet, cfg As PropConfig)
+    ws.Activate
     ws.Cells.Font.Name = "Calibri"
     ws.Cells.Font.Size = 11
 
@@ -221,7 +325,7 @@ Private Sub FormatMTMSheet(ws As Worksheet, cfg As PropConfig)
     ws.Range("F3:F2000").NumberFormat = "mm/dd/yy;@"
     ws.Range("G3:G2000").NumberFormat = "$#,##0"
     ws.Range("H3:H2000").NumberFormat = "mm/dd/yy;@"
-    ws.Range("K3:K2000").NumberFormat = ";;;"   ' hide TRUE/FALSE — checkbox shows state
+    ws.Range("K3:K2000").NumberFormat = ";;;"   ' hide TRUE/FALSE - checkbox shows state
 
     With ws.Range("A3:K2000")
         .HorizontalAlignment = xlCenter
@@ -235,21 +339,17 @@ Private Sub FormatMTMSheet(ws As Worksheet, cfg As PropConfig)
         .Borders(xlEdgeBottom).Weight = xlMedium
     End With
 
-    ws.Range("A3:K2000").FormatConditions.Delete
+    ws.Range("A3:K2000").FormatConditions.Delete   ' clears any wide-range CF left over from a previously-shipped version of this sheet
+    ws.Range("I3:I2000").FormatConditions.Delete   ' idempotency for this version's own rules
 
     Dim fcG As Object
-    Set fcG = ws.Range("A3:K2000").FormatConditions.Add( _
-        Type:=xlExpression, Formula1:="=$I3=""Active MTM""")
+    Set fcG = ws.Range("I3:I2000").FormatConditions.Add( _
+        Type:=xlExpression, Formula1:="=$I3=""Eligible""")
     fcG.Interior.Color = RGB(226, 239, 218)
 
-    Dim fcR As Object
-    Set fcR = ws.Range("A3:K2000").FormatConditions.Add( _
-        Type:=xlExpression, Formula1:="=LEFT($I3,1)=""" & ChrW(9888) & """")
-    fcR.Interior.Color = RGB(252, 220, 220)
-
     Dim fcS As Object
-    Set fcS = ws.Range("A3:K2000").FormatConditions.Add( _
-        Type:=xlExpression, Formula1:="=$I3=""Short Term""")
+    Set fcS = ws.Range("I3:I2000").FormatConditions.Add( _
+        Type:=xlExpression, Formula1:="=$I3=""Not Yet Eligible""")
     fcS.Interior.Color = RGB(255, 230, 153)
 
     With ws.Parent.Windows(1)
@@ -281,6 +381,7 @@ Private Sub WriteHeaders(ws As Worksheet, cfg As PropConfig)
 
     With ws.Range("A2:K2")
         .Font.Bold = True
+        .Font.Color = RGB(0, 0, 0)
         .WrapText = True
         .HorizontalAlignment = xlCenter
         .VerticalAlignment = xlCenter
@@ -289,101 +390,183 @@ Private Sub WriteHeaders(ws As Worksheet, cfg As PropConfig)
 End Sub
 
 ' ----------------------------------------------------------------
-'  DoRefreshMTM  -  update/flag/add units; rebuild checkboxes after sort.
-'  For "MTM" category rows: cols F (Last Increase), I (Status),
-'  J (Notes), K (checkbox) are preserved (manual/existing values).
-'  For "ShortTerm" category rows: I/H/J are system-calculated and
-'  are recomputed/overwritten on every refresh.
+'  DoRefreshMTM  -  rebuilds the sheet as a single flat list: every
+'  mtmDict entry is written in one pass starting at DATA_START, then
+'  the whole written range is sorted by col H (Next Increase). Units
+'  that dropped out of the current scan are simply not written back
+'  (no flag, no retained row).
+'
+'  mtmDict maps unit number -> index into mtmRecs() (see
+'  modReaders.ReadYardiMTM).
+'
+'  Cols F (Last Increase), J (Notes), and K (checkbox) are manual/
+'  carried and are pulled forward verbatim from the pre-refresh
+'  snapshot if the unit existed in it.
 ' ----------------------------------------------------------------
-Private Sub DoRefreshMTM(ws As Worksheet, mtmDict As Object)
+Private Sub DoRefreshMTM(ws As Worksheet, mtmDict As Object, mtmRecs() As MTMUnitRec)
+    ' Unwrap any live Table before the full-row delete below - deleting
+    ' rows out from under a live ListObject down to zero data rows is
+    ' an unsupported operation. .Unlist preserves all cell values/formatting.
+    Dim lo As ListObject
+    For Each lo In ws.ListObjects
+        lo.Unlist
+    Next lo
+
     Dim lastRow As Long
     lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
     If lastRow < DATA_START Then lastRow = DATA_START - 1
 
-    Dim sheetRows As Object: Set sheetRows = CreateObject("Scripting.Dictionary")
-    sheetRows.CompareMode = 1
+    ' Resolved before the destructive delete below - if this were ever to
+    ' fail, we haven't wiped any data yet.
+    ' targetEnd = last calendar date of the month containing today+90 days.
+    Dim tDate As Date: tDate = Now + 90
+    Dim targetEnd As Date: targetEnd = DateSerial(Year(tDate), Month(tDate) + 1, 1) - 1
+
+    ' Snapshot pass: capture F/J/K for existing tracked units before
+    ' clearing anything. Skip blank rows.
+    Dim snapshot As Object: Set snapshot = CreateObject("Scripting.Dictionary")
+    snapshot.CompareMode = 1
     Dim r As Long
     For r = DATA_START To lastRow
         Dim u As String: u = Trim(CStr(ws.Cells(r, 1).Value))
-        If u <> "" Then sheetRows(u) = r
+        If u = "" Then GoTo NextSnapRow
+        snapshot(u) = Array(ws.Cells(r, 6).Value, ws.Cells(r, 10).Value, ws.Cells(r, 11).Value)
+NextSnapRow:
     Next r
 
-    Dim newUnits As Object: Set newUnits = CreateObject("Scripting.Dictionary")
-    newUnits.CompareMode = 1
-    Dim key As Variant
-    For Each key In mtmDict.Keys
-        Dim arr As Variant: arr = mtmDict(key)
-        If sheetRows.Exists(key) Then
-            r = sheetRows(key)
-            ws.Cells(r, 2).Value = CStr(arr(0))
-            ws.Cells(r, 3).Value = CStr(arr(1))
-            If IsDate(arr(4)) Then ws.Cells(r, 4).Value = CDate(arr(4))
-            ws.Cells(r, 5).Value = CDbl(arr(3))
-            If IsNumeric(arr(2)) Then ws.Cells(r, 7).Value = CDbl(arr(2))
-            If CStr(arr(5)) = "ShortTerm" Then
-                ' System-calculated category - recompute/overwrite every refresh
-                ws.Cells(r, 9).Value = "Short Term"
-                If IsDate(arr(7)) Then ws.Cells(r, 8).Value = CDate(arr(7))
-                ws.Cells(r, 10).Value = "Short term lease: " & arr(6) & " months, next increase date is " & Format(arr(7), "m/d/yyyy")
-            Else
-                Dim liVal As Variant: liVal = ws.Cells(r, 6).Value
-                If IsDate(liVal) Then ws.Cells(r, 8).Value = NextIncreaseDate(CDate(liVal))
-            End If
-        Else
-            newUnits(key) = arr
-        End If
-    Next key
-
-    For Each key In sheetRows.Keys
-        If Not mtmDict.Exists(key) Then
-            Dim curStatus As String: curStatus = Trim(CStr(ws.Cells(sheetRows(key), 9).Value))
-            If curStatus = "Active MTM" Or curStatus = "Short Term" Then
-                ws.Cells(sheetRows(key), 9).Value = ChrW(9888) & " Review - may have renewed"
-            End If
-        End If
-    Next key
-
-    Dim nextRow As Long
-    nextRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row + 1
-    If nextRow < DATA_START Then nextRow = DATA_START
-    For Each key In newUnits.Keys
-        arr = newUnits(key)
-        ws.Cells(nextRow, 1).Value = CStr(key)
-        ws.Cells(nextRow, 2).Value = CStr(arr(0))
-        ws.Cells(nextRow, 3).Value = CStr(arr(1))
-        If IsDate(arr(4)) Then ws.Cells(nextRow, 4).Value = CDate(arr(4))
-        ws.Cells(nextRow, 5).Value = CDbl(arr(3))
-        If IsNumeric(arr(2)) Then ws.Cells(nextRow, 7).Value = CDbl(arr(2))
-        If CStr(arr(5)) = "ShortTerm" Then
-            ws.Cells(nextRow, 9).Value = "Short Term"
-            If IsDate(arr(7)) Then ws.Cells(nextRow, 8).Value = CDate(arr(7))
-            ws.Cells(nextRow, 10).Value = "Short term lease: " & arr(6) & " months, next increase date is " & Format(arr(7), "m/d/yyyy")
-        Else
-            ws.Cells(nextRow, 9).Value  = "Active MTM"
-        End If
-        ws.Cells(nextRow, 11).Value = False
-        nextRow = nextRow + 1
-    Next key
-
-    ' Sort by Next Increase (col H); col K TRUE/FALSE values sort with their rows
-    Dim lastRowAfter As Long
-    lastRowAfter = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
-    If lastRowAfter >= DATA_START Then
-        ws.Range(ws.Cells(DATA_START, 1), ws.Cells(lastRowAfter, COL_COUNT)).Sort _
-            Key1:=ws.Cells(DATA_START, 8), Order1:=xlAscending, Header:=xlNo
+    ' Clear (delete, not ClearContents) all data rows so any leftover
+    ' divider row from a prior version is cleanly disposed of.
+    If lastRow >= DATA_START Then
+        ws.Range(ws.Cells(DATA_START, 1), ws.Cells(lastRow, COL_COUNT)).Delete Shift:=xlUp
     End If
 
-    ' Rebuild checkboxes so they align with the sorted rows
+    ' --- Single pass: write every mtmDict entry starting at DATA_START ---
+    Dim key As Variant
+    Dim writeRow As Long: writeRow = DATA_START
+    Dim mtmCount As Long: mtmCount = 0
+    For Each key In mtmDict.Keys
+        WriteMTMDataRow ws, writeRow, CStr(key), mtmRecs(CLng(mtmDict(key))), snapshot, targetEnd
+        writeRow = writeRow + 1
+        mtmCount = mtmCount + 1
+    Next key
+    If mtmCount > 0 Then
+        ws.Range(ws.Cells(DATA_START, 1), ws.Cells(DATA_START + mtmCount - 1, COL_COUNT)).Sort _
+            Key1:=ws.Cells(DATA_START, 8), Order1:=xlAscending, Header:=xlNo
+
+        ' Rebuild the Table over the fresh, final range (row 2 header through
+        ' last data row) - always recreated fresh so refreshes never
+        ' accumulate orphaned Table1/Table2 auto-named leftovers.
+        Dim lo2 As ListObject
+        Set lo2 = ws.ListObjects.Add(xlSrcRange, _
+            ws.Range(ws.Cells(DATA_START - 1, 1), ws.Cells(DATA_START + mtmCount - 1, COL_COUNT)), , xlYes)
+        lo2.Name = "MTMTable"
+        lo2.TableStyle = "TableStyleLight9"
+        lo2.ShowTableStyleRowStripes = True
+        lo2.ShowAutoFilter = False
+
+        ' Table styling overrides the header row's own formatting - reapply it
+        ' (fill/bold/wrap from WriteHeaders, borders from FormatMTMSheet).
+        With ws.Range(ws.Cells(2, 1), ws.Cells(2, COL_COUNT))
+            .Font.Bold = True
+            .Font.Color = RGB(0, 0, 0)
+            .WrapText = True
+            .HorizontalAlignment = xlCenter
+            .VerticalAlignment = xlCenter
+            .Interior.Color = BAR_GREY
+            .Borders.LineStyle = xlContinuous
+            .Borders.Weight = xlThin
+            .Borders(xlEdgeBottom).Weight = xlMedium
+        End With
+
+        ' Explicit alternating row fill (Table quick-style stripes are not
+        ' reliably visible in all Excel renderings) - guaranteed banding.
+        ApplyRowBanding ws, DATA_START + mtmCount - 1
+    End If
+
+    ' Rebuild checkboxes over the new full range
     SyncCheckboxes ws
 End Sub
 
 ' ----------------------------------------------------------------
+'  ApplyRowBanding  -  applies straightforward alternating light
+'  row fills (white / light grey) across A:COL_COUNT for the data
+'  rows DATA_START..lastRow, as a guaranteed fallback for readability
+'  (the MTMTable's own TableStyleLight9 row stripes are not always
+'  visually apparent). Called after DoRefreshMTM writes/sorts the
+'  rows, and again from SortMTMSheet after it re-sorts (since sorting
+'  reshuffles which rows land on odd/even positions).
+' ----------------------------------------------------------------
+Private Sub ApplyRowBanding(ws As Worksheet, lastRow As Long)
+    Dim r As Long
+    For r = DATA_START To lastRow
+        If (r - DATA_START) Mod 2 = 0 Then
+            ws.Range(ws.Cells(r, 1), ws.Cells(r, COL_COUNT)).Interior.Color = RGB(255, 255, 255)
+        Else
+            ws.Range(ws.Cells(r, 1), ws.Cells(r, COL_COUNT)).Interior.Color = RGB(242, 242, 242)
+        End If
+    Next r
+End Sub
+
+' ----------------------------------------------------------------
+'  MTMStatusLabel  -  informational-only Status label. Has zero effect
+'  on checkbox availability or import eligibility.
+' ----------------------------------------------------------------
+Private Function MTMStatusLabel(niCell As Variant, targetEnd As Date) As String
+    If IsDate(niCell) And CDate(niCell) > targetEnd Then
+        MTMStatusLabel = "Not Yet Eligible"
+    Else
+        MTMStatusLabel = "Eligible"
+    End If
+End Function
+
+' ----------------------------------------------------------------
+'  WriteMTMDataRow  -  writes one MTMUnitRec to row r, carrying
+'  forward F/J/K from the pre-refresh snapshot (see DoRefreshMTM)
+'  unconditionally if the unit existed in it.
+' ----------------------------------------------------------------
+Private Sub WriteMTMDataRow(ws As Worksheet, r As Long, unit As String, rec As MTMUnitRec, _
+                             snapshot As Object, targetEnd As Date)
+    ws.Cells(r, 1).Value = unit
+    ws.Cells(r, 2).Value = rec.Name
+    ws.Cells(r, 3).Value = rec.FloorPlanCode
+    If IsDate(rec.ExpiryVal) Then ws.Cells(r, 4).Value = CDate(rec.ExpiryVal)
+    ws.Cells(r, 5).Value = rec.ActualRent
+    If IsNumeric(rec.MarketRent) Then ws.Cells(r, 7).Value = CDbl(rec.MarketRent)
+
+    Dim hasSnap As Boolean: hasSnap = snapshot.Exists(unit)
+    Dim snapArr As Variant
+    If hasSnap Then snapArr = snapshot(unit)
+
+    Dim liVal As Variant
+    If hasSnap Then
+        liVal = snapArr(0)
+        If Not IsEmpty(liVal) And CStr(liVal) <> "" Then ws.Cells(r, 6).Value = liVal
+        If IsDate(liVal) Then ws.Cells(r, 8).Value = NextIncreaseDate(CDate(liVal))
+        Dim noteVal As Variant: noteVal = snapArr(1)
+        If Not IsEmpty(noteVal) And CStr(noteVal) <> "" Then ws.Cells(r, 10).Value = noteVal
+    End If
+
+    ' Auto-note for stale MTM units with no Last Increase on record yet -
+    ' never overwrites an existing manual note.
+    If Trim(CStr(ws.Cells(r, 6).Value)) = "" And rec.StaleOut And Trim(CStr(ws.Cells(r, 10).Value)) = "" Then
+        ws.Cells(r, 10).Value = "Lease expired 15+ months ago - verify resident ledger for actual increase history"
+    End If
+
+    ws.Cells(r, 9).Value = MTMStatusLabel(ws.Cells(r, 8).Value, targetEnd)
+
+    If hasSnap Then
+        ws.Cells(r, 11).Value = snapArr(2)
+    Else
+        ws.Cells(r, 11).Value = False
+    End If
+End Sub
+
+' ----------------------------------------------------------------
 '  SyncCheckboxes  -  deletes all mtmChk_* Form Control checkboxes
-'                     and recreates one per data row (except rows with
-'                     Status = "Short Term", which are informational-
-'                     only and not yet eligible for import), linked
-'                     to col K. Called after every sort so checkboxes
-'                     stay aligned.
+'                     and recreates one for every row with a non-blank
+'                     unit number in col A, linked to col K. Status has
+'                     no bearing on checkbox creation. Called after
+'                     every sort so checkboxes stay aligned.
 ' ----------------------------------------------------------------
 Private Sub SyncCheckboxes(ws As Worksheet)
     ' Collect names first (can't delete while iterating the collection)
@@ -399,6 +582,8 @@ Private Sub SyncCheckboxes(ws As Worksheet)
     Next cb
     Dim i As Long
     For i = 0 To cnt - 1
+        ' Tolerate a checkbox that was already deleted or renamed out from
+        ' under us between the collect pass above and this delete call.
         On Error Resume Next
         ws.CheckBoxes(names(i)).Delete
         On Error GoTo 0
@@ -410,7 +595,6 @@ Private Sub SyncCheckboxes(ws As Worksheet)
     Dim r As Long
     For r = DATA_START To lastRow
         If Trim(CStr(ws.Cells(r, 1).Value)) = "" Then GoTo NextCB
-        If Trim(CStr(ws.Cells(r, 9).Value)) = "Short Term" Then GoTo NextCB
         Dim cell As Range: Set cell = ws.Cells(r, 11)
         Dim newCB As CheckBox
         Set newCB = ws.CheckBoxes.Add(cell.Left + 1, cell.Top + 1, _
@@ -487,11 +671,8 @@ Private Sub PlaceUnitInSection(mws As Worksheet, unitNum As String, grp As Strin
 End Sub
 
 ' ----------------------------------------------------------------
-'  NextIncreaseDate  -  Last Increase + 12 months, rounded up to
-'                       the 1st of the month if not already on the 1st.
+'  NextIncreaseDate  -  Last Increase + 1 year + 1 day.
 ' ----------------------------------------------------------------
 Private Function NextIncreaseDate(lastIncrease As Date) As Date
-    Dim d As Date: d = DateAdd("m", 12, lastIncrease)
-    If Day(d) <> 1 Then d = DateSerial(Year(d), Month(d) + 1, 1)
-    NextIncreaseDate = d
+    NextIncreaseDate = DateAdd("yyyy", 1, lastIncrease) + 1
 End Function

@@ -2,7 +2,7 @@
 
 **Systems covered:** Yardi Voyager 7S · Yardi CRM · RealPage · AIRM
 
-This guide covers where to find and export each of the five source reports the workbook imports each month, plus one additional optional report used by the [MTM Tracker Workflow](README.md#mtm-tracker-workflow). For import instructions, see the main [README](README.md).
+This guide covers where to find and export each of the five source reports the workbook imports each month. For import instructions, see the main [README](README.md).
 
 ---
 
@@ -173,53 +173,6 @@ Select **`.csv`** as the format, then click **View Report** or **Save Report** t
 
 ---
 
-## Report 6: Resident Lease Expirations Report
-
-**System:** Yardi Voyager 7S — Residential Analytics
-
-> ⚠️ This report is **optional** and is only used by the **MTM Tracker Workflow** (`RefreshMTMSheet`) — it is **not** one of the five reports used by the monthly `ImportMonthlyData` flow above. See [MTM Tracker Workflow](README.md#mtm-tracker-workflow) in the README for details.
-
-### How to Navigate
-
-1. From the left-hand menu, click **Analytics**
-2. Hover over **Residential**
-3. Select **Residential Analytics** from the flyout menu (same starting point as Reports 1 and 2)
-4. Choose a **Report Type** of **Lease Expirations** (naming may vary by Yardi version/property)
-
-*(screenshot to be added)*
-
-> ⚠️ The exact menu path and report name may vary by Yardi version or property. If "Lease Expirations" isn't listed under Residential Analytics, search your Yardi reports menu for "Lease Expirations" or a similarly-named report.
-
-### Settings
-
-| Field | Value |
-|---|---|
-| Property | Enter your property code |
-| From / To | Date range covering the leases you want expiration data for |
-| Report Type | Lease Expirations (or the closest equivalent available) |
-
-Click the **Excel** button to download.
-
-### Format
-
-`.xlsx`
-
-### Required Columns
-
-Only three columns are actually read by the parser — other columns in the report (Resident Name, Market Rent, etc.) are ignored:
-
-| Column | Used for |
-|---|---|
-| `Unit` | Matches the unit to its Yardi Rent Roll row |
-| `Lease From` | Lease commencement date |
-| `Lease To` | Lease expiration date |
-
-### Why It's Used
-
-This report gives the MTM Tracker exact lease commencement/expiration dates, used to detect **short-term-lease units** (lease term under 12 months) so the tracker can flag them and compute the correct next-increase date. If you skip this report, the tracker falls back to a less-precise method using the RealPage Renewal Offer Analysis Report (Report 4), or skips short-term-lease detection entirely if neither report is available. Skipping it has no effect on ordinary Active MTM detection.
-
----
-
 ## Summary
 
 | # | Report | System | Format | Required? |
@@ -229,8 +182,5 @@ This report gives the MTM Tracker exact lease commencement/expiration dates, use
 | 3 | Resident Activity Detail | Yardi CRM | `.xls` | Recommended |
 | 4 | Renewal Offer Analysis | RealPage | `.csv` | Recommended |
 | 5 | Unit Rents Grid | AIRM | `.xlsx` | Recommended |
-| 6 | Resident Lease Expirations | Yardi Voyager 7S | `.xlsx` | Optional (MTM Tracker only) |
 
 Export all five reports for the same month before starting the import. The import wizard walks you through file selection one at a time — click **Cancel** on any file you don't have to skip it.
-
-Report 6 (Resident Lease Expirations) is separate from the monthly import — it's only used by the [MTM Tracker Workflow](README.md#mtm-tracker-workflow)'s `RefreshMTMSheet`, not `ImportMonthlyData`. Pull it only when refreshing the MTM tracker.

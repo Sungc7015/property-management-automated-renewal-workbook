@@ -6,8 +6,24 @@ Option Explicit
 '                 Move-in Box Score) and related helpers.
 '                 Pure data extraction - no sheet writes here.
 '
-'  Version 2.3.0 - carved from modRenewalImporter v1.2.1
+'  Version 2.6.0
 ' ================================================================
+
+' ----------------------------------------------------------------
+'  MTM UNIT RECORD  -  one MTM-occupied unit from the Yardi Rent
+'  Roll. Filled by ReadYardiMTM; consumed by modImport.FillMTMRows
+'  and modMTM.WriteMTMDataRow via named fields (replaces the old
+'  positional Array(...) values). Public because a Private Type
+'  cannot appear in cross-module procedure signatures.
+' ----------------------------------------------------------------
+Public Type MTMUnitRec
+    Name          As String
+    FloorPlanCode As String
+    MarketRent    As Variant   ' raw cell value - consumers check IsNumeric
+    ActualRent    As Double
+    ExpiryVal     As Variant   ' Date (past-due expiry) or String (non-date)
+    StaleOut      As Boolean   ' True if past-date expiry is 15+ months ago
+End Type
 
 Private mUnmapped As String
 
@@ -116,11 +132,11 @@ Public Sub ReadYardi(cfg As PropConfig, wb As Workbook, mth As Integer, yr As In
 
     For r = dataRow To lastRow
         Dim u As String: u = Trim(CStr(ws.Cells(r, cU).Value))
-        If Not MatchesAnyPattern(cfg, u) Then GoTo Skip
+        If Not MatchesAnyPattern(cfg, u) Then GoTo NextUnit
         Dim nm As String: nm = Trim(CStr(ws.Cells(r, cN).Value))
-        If nm = "" Or LCase(nm) = "vacant" Then GoTo Skip
-        If Not IsNumeric(ws.Cells(r, cA).Value) Then GoTo Skip
-        If CDbl(ws.Cells(r, cA).Value) <= 0 Then GoTo Skip
+        If nm = "" Or LCase(nm) = "vacant" Then GoTo NextUnit
+        If Not IsNumeric(ws.Cells(r, cA).Value) Then GoTo NextUnit
+        If CDbl(ws.Cells(r, cA).Value) <= 0 Then GoTo NextUnit
 
         If IsDate(ws.Cells(r, cE).Value) Then
             Dim ed As Date: ed = CDate(ws.Cells(r, cE).Value)
@@ -134,7 +150,7 @@ Public Sub ReadYardi(cfg As PropConfig, wb As Workbook, mth As Integer, yr As In
                 mthCnt = mthCnt + 1
             End If
         End If
-Skip:
+NextUnit:
     Next r
 End Sub
 
@@ -234,10 +250,10 @@ Public Sub ReadRP(wb As Workbook, rpU() As Variant, rpCnt As Long)
     Dim r As Long
     For r = 2 To lastRow
         Dim uv As String: uv = Trim(CStr(ws.Cells(r, cUnit).Value))
-        If uv = "" Or uv = "Unit" Then GoTo SkipRP
+        If uv = "" Or uv = "Unit" Then GoTo NextRP
 
         Dim tv As String: tv = Trim(CStr(ws.Cells(r, cTerm).Value))
-        If Not IsNumeric(tv) Then GoTo SkipRP
+        If Not IsNumeric(tv) Then GoTo NextRP
         Dim tNum As Double: tNum = CDbl(tv)
         Dim diff As Double: diff = Abs(tNum - 12)
 
@@ -270,7 +286,7 @@ Public Sub ReadRP(wb As Workbook, rpU() As Variant, rpCnt As Long)
             bUnit(bPos) = uv: bDiff(bPos) = diff
             bPos = bPos + 1: rpCnt = rpCnt + 1
         End If
-SkipRP:
+NextRP:
     Next r
 End Sub
 
@@ -420,97 +436,29 @@ NextMI:
     Next i
 End Sub
 
-' ================================================================
-'  READ RESIDENT LEASE EXPIRATIONS (.xlsx)  ->  Unit, Lease From, Lease To
-'  Fills a Dictionary keyed by unit number with Array(leaseFromDate,
-'  leaseToDate), the exact lease commencement/expiration dates. This
-'  is the PREFERRED source for short-term-lease detection in
-'  ReadYardiMTM (see below) - exact dates instead of an approximated
-'  term. Returns an empty dictionary if the header row (found by
-'  searching for a cell trimmed-equal to "Lease From") or any of the
-'  three columns (Unit, Lease From, Lease To) can't be located -
-'  caller treats this the same as "report not provided".
-' ================================================================
-Public Function ReadLeaseExpirations(wb As Workbook) As Object
-    Dim dict As Object: Set dict = CreateObject("Scripting.Dictionary")
-    dict.CompareMode = 1   ' vbTextCompare
-
-    Dim ws As Worksheet: Set ws = wb.Sheets(1)
-
-    Dim hRow As Long: hRow = 0
-    Dim cFrom As Long: cFrom = 0
-    Dim r As Long, c As Long, lastCol As Long
-    For r = 1 To 15
-        lastCol = ws.Cells(r, ws.Columns.Count).End(xlToLeft).Column
-        For c = 1 To lastCol
-            If Trim(CStr(ws.Cells(r, c).Value)) = "Lease From" Then
-                hRow = r: cFrom = c: Exit For
-            End If
-        Next c
-        If hRow > 0 Then Exit For
-    Next r
-    If hRow = 0 Then Set ReadLeaseExpirations = dict: Exit Function
-
-    Dim cUnit As Long: cUnit = FindHeaderColExact(ws, hRow, "Unit")
-    Dim cTo As Long:   cTo = FindHeaderColExact(ws, hRow, "Lease To")
-    If cUnit = 0 Or cTo = 0 Then Set ReadLeaseExpirations = dict: Exit Function
-
-    Dim lastRow As Long: lastRow = ws.Cells(ws.Rows.Count, cUnit).End(xlUp).Row
-
-    For r = hRow + 1 To lastRow
-        Dim u As String: u = Trim(CStr(ws.Cells(r, cUnit).Value))
-        If u = "" Then GoTo NextLE
-        If InStr(1, u, "Total", vbTextCompare) = 1 Then GoTo NextLE
-        If u = "Expiring Leases" Or u = "M-to-M" Then GoTo NextLE
-        If InStr(u, "-") = 0 Then GoTo NextLE
-
-        Dim fromCell As Variant: fromCell = ws.Cells(r, cFrom).Value
-        Dim toCell As Variant:   toCell = ws.Cells(r, cTo).Value
-        If Not IsDate(fromCell) Then GoTo NextLE
-        If Not IsDate(toCell) Then GoTo NextLE
-
-        If Not dict.Exists(u) Then
-            dict.Add u, Array(CDate(fromCell), CDate(toCell))
-        End If
-NextLE:
-    Next r
-
-    Set ReadLeaseExpirations = dict
-End Function
-
 ' ----------------------------------------------------------------
-'  ReadYardiMTM  -  returns all MTM-occupied units (past/non-date
-'                   expiry), PLUS short-term-lease units (future
-'                   expiry but a short current lease term), as a
-'                   Dictionary keyed by unit number.
+'  ReadYardiMTM  -  returns all MTM-occupied units (past-date or
+'                   non-date lease expiry) from the Yardi Rent Roll.
+'                   A future-dated expiry simply means the unit is
+'                   not on the tracker at all.
 '
-'                   Short-term-lease term is determined with this
-'                   precedence:
-'                     1. PREFERRED - leaseExpDict (from
-'                        ReadLeaseExpirations, i.e. the Resident Lease
-'                        Expirations report), which gives the exact
-'                        lease commencement/expiration dates. Pass
-'                        Nothing if that report wasn't provided.
-'                     2. FALLBACK - rpU()/rpCnt (RealPage Renewal Offer
-'                        Analysis data from ReadRP), used to look up
-'                        each unit's approximate current lease term.
-'                        Pass an empty array and rpCnt = 0 if the
-'                        RealPage report wasn't provided either.
-'                   If neither source has a match, short-term detection
-'                   simply finds nothing; existing MTM behavior is
-'                   unaffected.
+'                   Returns a Dictionary keyed by unit number whose
+'                   item is a Long index into the recs() array of
+'                   MTMUnitRec (VBA cannot store user-defined types
+'                   directly as Dictionary items). Consumers keep
+'                   using dict.Exists / dict.Count / dict.Keys and
+'                   read named fields off recs(dict(unit)).
 '
-'                   Value = Array(name, fpCode, marketRent, actualRent,
-'                                 expiryVal, category, curTerm, nextInc)
-'                     category = "MTM" or "ShortTerm"
-'                     curTerm  = current lease term (months), "ShortTerm" only, else 0
-'                     nextInc  = computed Next Increase date, "ShortTerm" only, else empty
+'                   StaleOut = True if the past-date expiry is more
+'                   than 15 months ago (per DateDiff("m", ...)),
+'                   else False. Non-date expiries are always
+'                   StaleOut = False.
 ' ----------------------------------------------------------------
 Public Function ReadYardiMTM(cfg As PropConfig, wb As Workbook, _
-                              rpU() As Variant, rpCnt As Long, _
-                              leaseExpDict As Object) As Object
+                             recs() As MTMUnitRec) As Object
     Dim dict As Object: Set dict = CreateObject("Scripting.Dictionary")
     dict.CompareMode = 1   ' vbTextCompare
+    ReDim recs(0)
 
     Dim ws As Worksheet: Set ws = wb.Sheets(1)
     Dim lastRow As Long: lastRow = ws.Cells(ws.Rows.Count, cfg.RRUnit).End(xlUp).Row
@@ -533,6 +481,9 @@ Public Function ReadYardiMTM(cfg As PropConfig, wb As Workbook, _
     Next r
     If dataStart = 0 Then Set ReadYardiMTM = dict: Exit Function
 
+    ReDim recs(lastRow)
+    Dim cnt As Long: cnt = 0
+
     For r = dataStart To lastRow
         Dim u As String: u = Trim(CStr(ws.Cells(r, cU).Value))
         If u = "" Then GoTo NextRow
@@ -545,81 +496,33 @@ Public Function ReadYardiMTM(cfg As PropConfig, wb As Workbook, _
         If Not IsNumeric(actRaw) Then GoTo NextRow
         If CDbl(actRaw) <= 0 Then GoTo NextRow
 
-        ' Keep only past-date or non-date expiry (opposite of ReadYardi) --
-        ' PLUS future-expiry units whose current lease term is < 12 months
-        ' (short-term lease, per RealPage Renewal Offer Analysis report).
+        ' Keep only past-date or non-date expiry (opposite of ReadYardi).
         Dim expCell As Variant: expCell = ws.Cells(r, cE).Value
         Dim isMTM As Boolean: isMTM = False
         Dim expiryVal As Variant
-        Dim cat As String: cat = "MTM"
-        Dim curTermOut As Long: curTermOut = 0
-        Dim nextIncOut As Variant
+        Dim staleOut As Boolean: staleOut = False
         If IsDate(expCell) Then
             If CDate(expCell) < Date Then
                 isMTM = True
                 expiryVal = CDate(expCell)
-                cat = "MTM"
-            Else
-                Dim shortTermMatched As Boolean: shortTermMatched = False
-
-                ' Preferred: exact commencement/expiration dates from the
-                ' Resident Lease Expirations report.
-                If Not leaseExpDict Is Nothing Then
-                    If leaseExpDict.Exists(u) Then
-                        Dim leArr As Variant: leArr = leaseExpDict(u)
-                        Dim leaseFrom As Date: leaseFrom = CDate(leArr(0))
-                        Dim leaseTo As Date:   leaseTo = CDate(leArr(1))
-                        Dim termMonths As Long: termMonths = DateDiff("m", leaseFrom, leaseTo + 1)
-                        If termMonths > 0 And termMonths < 12 Then
-                            isMTM = True
-                            expiryVal = CDate(expCell)
-                            cat = "ShortTerm"
-                            curTermOut = termMonths
-                            Dim nextIncLE As Date
-                            nextIncLE = DateAdd("m", 12, leaseFrom)
-                            If Day(nextIncLE) <> 1 Then nextIncLE = DateSerial(Year(nextIncLE), Month(nextIncLE) + 1, 1)
-                            nextIncOut = nextIncLE
-                            shortTermMatched = True
-                        End If
-                    End If
-                End If
-
-                ' Fallback: approximate current lease term from the
-                ' RealPage Renewal Offer Analysis report.
-                If Not shortTermMatched Then
-                    If rpCnt > 0 Then
-                        Dim dummyInc As Double, curTerm As Long
-                        If LookupRP(rpU, rpCnt, u, dummyInc, curTerm) Then
-                            If curTerm > 0 And curTerm < 12 Then
-                                isMTM = True
-                                expiryVal = CDate(expCell)
-                                cat = "ShortTerm"
-                                curTermOut = curTerm
-                                Dim nextInc As Date
-                                nextInc = DateAdd("m", 12 - curTerm, CDate(expCell))
-                                If Day(nextInc) <> 1 Then nextInc = DateSerial(Year(nextInc), Month(nextInc) + 1, 1)
-                                nextIncOut = nextInc
-                            End If
-                        End If
-                    End If
-                End If
+                staleOut = (DateDiff("m", CDate(expCell), Date) > 15)
             End If
         ElseIf Trim(CStr(expCell)) <> "" Then
             isMTM = True
             expiryVal = Trim(CStr(expCell))
-            cat = "MTM"
+            staleOut = False
         End If
         If Not isMTM Then GoTo NextRow
 
         If Not dict.Exists(u) Then
-            dict.Add u, Array(nm, _
-                              Trim(CStr(ws.Cells(r, cT).Value)), _
-                              ws.Cells(r, cM).Value, _
-                              CDbl(actRaw), _
-                              expiryVal, _
-                              cat, _
-                              curTermOut, _
-                              nextIncOut)
+            recs(cnt).Name = nm
+            recs(cnt).FloorPlanCode = Trim(CStr(ws.Cells(r, cT).Value))
+            recs(cnt).MarketRent = ws.Cells(r, cM).Value
+            recs(cnt).ActualRent = CDbl(actRaw)
+            recs(cnt).ExpiryVal = expiryVal
+            recs(cnt).StaleOut = staleOut
+            dict.Add u, cnt
+            cnt = cnt + 1
         End If
 NextRow:
     Next r

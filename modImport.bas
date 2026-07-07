@@ -7,17 +7,16 @@ Private Const DEBUG_IMPORT As Boolean = False
 '  modImport  -  button handler, orchestration, and sheet writing.
 '
 '  Reads: modConfig (PropConfig, LoadConfig, GetGroupForCode, GroupIndex)
-'         modReaders (PickFile, ReadYardi, ReadYardiMTM, ReadUnitStats, ReadRP,
-'                     LookupRP, ReadUnitRentsGrid, LookupGrid,
-'                     ReadMovein, LookupFP, AddUnmapped,
-'                     UnmappedList, HasUnmapped, ResetUnmapped)
-'         modSheetUtils (IsSectionBar, UnmergeMultiRowMerges,
-'                        InsertRowCopyFromSource, ClearDataCells,
-'                        SheetExists, MonthName*, MonthSheetName,
+'         modReaders (MTMUnitRec, PickFile, ReadYardi, ReadYardiMTM,
+'                     ReadUnitStats, ReadRP, LookupRP,
+'                     ReadUnitRentsGrid, LookupGrid, ReadMovein,
+'                     LookupFP, AddUnmapped, UnmappedList,
+'                     HasUnmapped, ResetUnmapped)
+'         modSheetUtils (IsSectionBar, InsertRowCopyFromSource,
+'                        ClearDataCells, SheetExists, MonthSheetName,
 '                        MonthYearPrefix)
 '
-'  Version 2.3.0 - refactored from modRenewalImporter v1.2.1
-'  Bug fix: merged-cell paste crash resolved in FillSheet.
+'  Version 2.6.0
 ' ================================================================
 
 ' ----------------------------------------------------------------
@@ -102,11 +101,11 @@ Public Sub ImportMonthlyData()
            "Click Cancel to skip.", vbInformation, "Import"
     Dim moveinPath As String: moveinPath = PickFile("Select Move-in Box Score", "xls")
 
+    On Error GoTo ErrHandler
     Application.ScreenUpdating = False
     Application.Calculation = xlCalculationManual
     Application.EnableEvents = False
 
-    On Error GoTo ErrHandler
     Dim msg As String
     msg = DoImport(cfg, mNum, yr, yardiPath, statsPath, rpPath, gridPath, moveinPath)
 
@@ -153,7 +152,8 @@ Private Function DoImport(cfg As PropConfig, mNum As Integer, yr As Integer, _
     End If
 
     Dim mtmDict As Object
-    Set mtmDict = ReadYardiMTM(cfg, yardiWB, rpUnits, rpCnt, Nothing)
+    Dim mtmRecs() As MTMUnitRec
+    Set mtmDict = ReadYardiMTM(cfg, yardiWB, mtmRecs)
     yardiWB.Close False
 
     Dim fpAvgs() As Long
@@ -189,7 +189,7 @@ Private Function DoImport(cfg As PropConfig, mNum As Integer, yr As Integer, _
     End If
 
     FillSheet cfg, ws, mthUnits, mthCnt, fpAvgs, fpL, rpUnits, rpCnt, gridUnits, gridCnt
-    FillMTMRows cfg, ws, mtmDict, fpAvgs, fpL, rpUnits, rpCnt, gridUnits, gridCnt
+    FillMTMRows cfg, ws, mtmDict, mtmRecs, fpAvgs, fpL, rpUnits, rpCnt, gridUnits, gridCnt
 
     Dim skipped As String: skipped = ""
     If statsPath = "" Then skipped = skipped & "  Col K, W - Yardi Unit Statistics not provided" & vbCrLf
@@ -216,9 +216,11 @@ End Function
 '  FILL SHEET
 '  Writes collected data into the target month sheet.
 '
-'  BUG FIX (v2.0.0): Row insertion uses InsertRowCopyFromSource
-'  (modSheetUtils), which unmerges the destination after PasteFormats
-'  and before PasteFormulas, preventing the "merged cell" crash.
+'  Row insertion delegates to InsertRowCopyFromSource (modSheetUtils),
+'  the shared 4-step unmerge/insert/format/formula helper also used
+'  by modDynamic.InsertBufferRow. It unmerges the destination after
+'  PasteFormats and before PasteFormulas, preventing the "merged
+'  cell" crash (v2.0.0 fix).
 ' ================================================================
 Private Sub FillSheet(cfg As PropConfig, ws As Worksheet, _
                        mthU() As Variant, mthCnt As Long, _
@@ -281,7 +283,7 @@ Private Sub FillSheet(cfg As PropConfig, ws As Worksheet, _
     Dim mi As Long, si As Long
     For mi = 0 To mthCnt - 1
         Dim grp As String: grp = GetGroupForCode(cfg, CStr(mthU(mi, 1)))
-        If grp = "" Then AddUnmapped CStr(mthU(mi, 1)): GoTo SkipUnit
+        If grp = "" Then AddUnmapped CStr(mthU(mi, 1)): GoTo NextUnit
         For si = 0 To secCount - 1
             If LCase(Trim(secLabel(si))) = LCase(Trim(grp)) Then
                 secUnitIdx(si, secUnitCnt(si)) = mi
@@ -289,7 +291,7 @@ Private Sub FillSheet(cfg As PropConfig, ws As Worksheet, _
                 Exit For
             End If
         Next si
-SkipUnit:
+NextUnit:
     Next mi
 
     ' --- Write sections (bottom-to-top to keep row numbers stable during inserts) ---
@@ -318,25 +320,10 @@ SkipUnit:
             Dim ni As Long
             For ni = 1 To need
                 Dim insertAt As Long: insertAt = secLast(si)
-
-                ' Step 1: unmerge multi-row merges on the source row before Insert
-                UnmergeMultiRowMerges ws, insertAt
-
-                ws.Rows(insertAt).Insert Shift:=xlDown, CopyOrigin:=xlFormatFromLeftOrAbove
-
-                ' Step 2: copy formats (this copies horizontal merge structure onto dest)
-                ws.Rows(insertAt + 1).Copy
-                ws.Rows(insertAt).PasteSpecial Paste:=xlPasteFormats
-                Application.CutCopyMode = False
-
-                ' Step 3: unmerge dest AFTER PasteFormats, BEFORE PasteFormulas (THE FIX)
-                UnmergeMultiRowMerges ws, insertAt
-
-                ' Step 4: paste formulas into now-unmerged destination
-                ws.Rows(insertAt + 1).Copy
-                ws.Rows(insertAt).PasteSpecial Paste:=xlPasteFormulas
-                Application.CutCopyMode = False
-
+                ' Shared 4-step insert: unmerge source, insert, copy formats,
+                ' unmerge dest, copy formulas (source auto-adjusts to the row
+                ' that shifted down to insertAt + 1).
+                InsertRowCopyFromSource ws, insertAt, insertAt
                 ClearDataCells ws, insertAt
                 secLast(si) = secLast(si) + 1
             Next ni
@@ -438,9 +425,12 @@ End Function
 '                  data for Name (col C), Floor Plan (col D), and
 '                  Current Rent (col E) takes precedence and overwrites
 '                  whatever was previously written there.
+'
+'                  mtmDict maps unit number -> index into mtmRecs()
+'                  (see modReaders.ReadYardiMTM).
 ' ----------------------------------------------------------------
 Private Sub FillMTMRows(cfg As PropConfig, ws As Worksheet, _
-                         mtmDict As Object, _
+                         mtmDict As Object, mtmRecs() As MTMUnitRec, _
                          fpAvgs() As Long, fpL() As Long, _
                          rpU() As Variant, rpCnt As Long, _
                          gridU() As Variant, gridCnt As Long)
@@ -450,6 +440,7 @@ Private Sub FillMTMRows(cfg As PropConfig, ws As Worksheet, _
     Dim lastUsed As Long
     lastUsed = ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
 
+    Dim rec As MTMUnitRec
     Dim r As Long
     For r = 3 To lastUsed
         If IsSectionBar(ws, r) Then GoTo NextMTMRow
@@ -461,12 +452,11 @@ Private Sub FillMTMRows(cfg As PropConfig, ws As Worksheet, _
         If bVal = "" Then GoTo NextMTMRow
         If Not mtmDict.Exists(bVal) Then GoTo NextMTMRow
 
-        Dim arr As Variant: arr = mtmDict(bVal)
-        ' arr(0)=name  arr(1)=fpCode  arr(2)=marketRent  arr(3)=actualRent  arr(4)=expiryVal
+        rec = mtmRecs(CLng(mtmDict(bVal)))
 
-        Dim grp As String: grp = GetGroupForCode(cfg, CStr(arr(1)))
+        Dim grp As String: grp = GetGroupForCode(cfg, rec.FloorPlanCode)
         Dim occAvg As Long: occAvg = LookupFP(cfg, fpAvgs, grp)
-        Dim lAvg As Long:   lAvg  = LookupFP(cfg, fpL, grp)
+        Dim lAvg As Long:   lAvg = LookupFP(cfg, fpL, grp)
 
         Dim ysInc As Double, rpCurTerm As Long
         Dim hasRP As Boolean: hasRP = False
@@ -480,25 +470,24 @@ Private Sub FillMTMRows(cfg As PropConfig, ws As Worksheet, _
         End If
 
         ' Write columns
-        ws.Cells(r, 3).Value = CStr(arr(0))
-        ws.Cells(r, 4).Value = CStr(arr(1))
-        ws.Cells(r, 5).Value = CDbl(arr(3))
+        ws.Cells(r, 3).Value = rec.Name
+        ws.Cells(r, 4).Value = rec.FloorPlanCode
+        ws.Cells(r, 5).Value = rec.ActualRent
         If hasGrid And bestOff > 0 And curEff > 0 Then
             ws.Cells(r, 6).Value = CLng(bestOff - curEff)
         ElseIf hasRP And ysInc <> 0 Then
             ws.Cells(r, 6).Value = CLng(ysInc)
         End If
-        If IsNumeric(arr(2)) Then ws.Cells(r, 11).Value = CDbl(arr(2))
+        If IsNumeric(rec.MarketRent) Then ws.Cells(r, 11).Value = CDbl(rec.MarketRent)
         If occAvg > 0 Then ws.Cells(r, 12).Value = occAvg
         If lAvg > 0 Then ws.Cells(r, 13).Value = lAvg
         If hasGrid And newLease > 0 Then ws.Cells(r, 14).Value = CLng(newLease)
-        If IsDate(arr(4)) Then ws.Cells(r, 16).Value = CDate(arr(4))
+        If IsDate(rec.ExpiryVal) Then ws.Cells(r, 16).Value = CDate(rec.ExpiryVal)
         Dim mtmCell As Range: Set mtmCell = ws.Cells(r, 20)
         If Trim(CStr(mtmCell.Value)) = "" Then mtmCell.Value = "MTM"
         mtmCell.Interior.Color = RGB(255, 255, 0)
         mtmCell.Font.Bold = True
         If occAvg > 0 Then ws.Cells(r, 24).Value = occAvg
-
 NextMTMRow:
     Next r
 End Sub

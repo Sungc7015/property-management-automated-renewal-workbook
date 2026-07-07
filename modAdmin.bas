@@ -4,14 +4,19 @@ Option Explicit
 ' ================================================================
 '  modAdmin  -  one-time setup and ongoing health monitoring.
 '
-'  SetupWorkbook: adds 5 buttons to the Overview sheet.
+'  SetupWorkbook: adds 5 buttons to the Overview sheet, and the 4
+'                 MTM tracker buttons if the MTM sheet exists (if it
+'                 doesn't yet, modMTM.RefreshMTMSheet wires them
+'                 automatically the first time it runs).
 '  HealthCheck:   verifies module version, config, sheets, names.
 '
-'  Version 2.3.0 - carved from modRenewalDynamic + modPropertySetup v1.2.1
+'  Version 2.6.0 - modMTM added to the module-presence check and
+'  button wiring (previously skipped entirely); removed the dead
+'  buffer-cache refresh (modDynamic reads Buffer Rows fresh now).
 ' ================================================================
 
 ' ================================================================
-'  SETUP WORKBOOK  -  run once after importing all 8 .bas files
+'  SETUP WORKBOOK  -  run once after importing all 9 .bas files
 ' ================================================================
 Public Sub SetupWorkbook()
     Dim hasConfig   As Boolean
@@ -22,6 +27,7 @@ Public Sub SetupWorkbook()
     Dim hasSetup    As Boolean
     Dim hasOverview As Boolean
     Dim hasAdmin    As Boolean
+    Dim hasMTM      As Boolean
     Dim vbc As Object
 
     On Error GoTo NoTrust
@@ -35,6 +41,7 @@ Public Sub SetupWorkbook()
             Case "modSetup":     hasSetup = True
             Case "modOverview":  hasOverview = True
             Case "modAdmin":     hasAdmin = True
+            Case "modMTM":       hasMTM = True
         End Select
     Next vbc
     On Error GoTo 0
@@ -48,6 +55,7 @@ Public Sub SetupWorkbook()
     If Not hasSetup Then missing = missing & "  modSetup.bas" & vbCrLf
     If Not hasOverview Then missing = missing & "  modOverview.bas" & vbCrLf
     If Not hasAdmin Then missing = missing & "  modAdmin.bas" & vbCrLf
+    If Not hasMTM Then missing = missing & "  modMTM.bas" & vbCrLf
 
     If missing <> "" Then
         MsgBox "These modules must be imported before running Setup:" & vbCrLf & missing & vbCrLf & _
@@ -74,7 +82,19 @@ Public Sub SetupWorkbook()
     AddButton ovWS, "btn_Overview", "Create Overview", 520, 5, "modOverview.CreateOverviewSheet"
     AddButton ovWS, "btn_HealthCheck", "Health Check", 690, 5, "modAdmin.HealthCheck"
 
-    RefreshBufferCache
+    ' Wire the 4 MTM tracker buttons now if the MTM sheet already exists.
+    ' If it doesn't, RefreshMTMSheet adds them automatically when it first
+    ' creates the sheet - no manual button setup is ever required.
+    Dim mtmWired As Boolean
+    mtmWired = modMTM.EnsureMTMButtons()
+
+    Dim mtmNote As String
+    If mtmWired Then
+        mtmNote = "MTM tracker buttons added to the MTM sheet." & vbCrLf
+    Else
+        mtmNote = "MTM tracker buttons will be added automatically the" & vbCrLf & _
+                  "first time you run modMTM.RefreshMTMSheet." & vbCrLf
+    End If
 
     On Error Resume Next
     ThisWorkbook.BuiltinDocumentProperties("Author").Value = "Christopher Sung"
@@ -83,7 +103,8 @@ Public Sub SetupWorkbook()
     On Error GoTo 0
 
     MsgBox "Setup complete!  (version " & VER & ")" & vbCrLf & vbCrLf & _
-           "Buttons added to: " & ovName & vbCrLf & vbCrLf & _
+           "Buttons added to: " & ovName & vbCrLf & _
+           mtmNote & vbCrLf & _
            "Reminder: ensure the Workbook_SheetChange event in ThisWorkbook" & vbCrLf & _
            "calls modDynamic.HandleSheetChange, then run Create Setup Sheet.", _
            vbInformation, "Setup Complete"
@@ -96,8 +117,9 @@ NoTrust:
            "then run Setup again.", vbExclamation, "Setup - VBA Access Needed"
 End Sub
 
-Private Sub AddButton(ws As Worksheet, btnName As String, caption As String, _
-                       leftPos As Single, topPos As Single, macro As String)
+' Public so modMTM.EnsureMTMButtons can reuse the same button style.
+Public Sub AddButton(ws As Worksheet, btnName As String, caption As String, _
+                      leftPos As Single, topPos As Single, macro As String)
     Dim shp As Shape
     For Each shp In ws.Shapes
         If shp.Name = btnName Then shp.Delete: Exit For

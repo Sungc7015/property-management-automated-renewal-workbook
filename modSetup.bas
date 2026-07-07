@@ -5,7 +5,7 @@ Option Explicit
 '  modSetup  -  Property Setup sheet creation and month sheet
 '               generation.
 '
-'  Version 2.3.0 - carved from modPropertySetup v1.2.1
+'  Version 2.6.0
 ' ================================================================
 
 ' ================================================================
@@ -16,6 +16,8 @@ Public Sub CreateSetupSheet()
     On Error Resume Next
     Set ws = ThisWorkbook.Sheets(SETUP_SHEET)
     On Error GoTo 0
+
+    On Error GoTo ErrHandler
 
     If Not ws Is Nothing Then
         If MsgBox("A '" & SETUP_SHEET & "' sheet already exists." & vbCrLf & _
@@ -124,6 +126,10 @@ Public Sub CreateSetupSheet()
     MsgBox "Property Setup sheet created (pre-filled with FGLN as the example)." & vbCrLf & vbCrLf & _
            "Edit the values for your property, then run GenerateMonthSheets.", _
            vbInformation, "Property Setup"
+    Exit Sub
+ErrHandler:
+    Application.DisplayAlerts = True
+    MsgBox "Error " & Err.Number & ": " & Err.Description, vbCritical, "Property Setup"
 End Sub
 
 Private Sub AddName(nm As String, rng As Range)
@@ -175,10 +181,10 @@ Public Sub GenerateMonthSheets()
         If rowsPerSection < 1 Then rowsPerSection = cfg.BufferRows
     End If
 
+    On Error GoTo ErrHandler
     Application.ScreenUpdating = False
     Application.Calculation = xlCalculationManual
     Application.EnableEvents = False
-    On Error GoTo ErrHandler
 
     Dim built As String, skipped As String
     Dim i As Long

@@ -4,7 +4,7 @@ Option Explicit
 ' ================================================================
 '  modOverview  -  multi-year renewal summary sheet builder.
 '
-'  Version 2.3.0 - carved from modPropertySetup v1.2.1
+'  Version 2.6.0
 ' ================================================================
 
 Public Sub CreateOverviewSheet()
@@ -19,15 +19,15 @@ Public Sub CreateOverviewSheet()
                   vbYesNo + vbExclamation, "Overview") <> vbYes Then Exit Sub
     End If
 
+    On Error GoTo ErrHandler
     Application.ScreenUpdating = False
-    On Error GoTo CleanFail
     RefreshOverview cfg
     Application.ScreenUpdating = True
     MsgBox "Multi-year summary built." & vbCrLf & _
            "A new column appears for each year you generate.", _
            vbInformation, "Overview"
     Exit Sub
-CleanFail:
+ErrHandler:
     Application.ScreenUpdating = True
     Application.EnableEvents = True
     Application.DisplayAlerts = True
@@ -38,6 +38,7 @@ Public Sub RefreshOverview(cfg As PropConfig)
     Dim targetName As String: targetName = FindOverviewName()
     Dim evState As Boolean: evState = Application.EnableEvents
     Application.EnableEvents = False
+    On Error GoTo ErrHandler
 
     Dim ws As Worksheet
     Dim exMarks As Object
@@ -52,11 +53,19 @@ Public Sub RefreshOverview(cfg As PropConfig)
         ws.Cells.Clear
         On Error Resume Next
         ws.Cells.FormatConditions.Delete
-        On Error GoTo 0
+        On Error GoTo ErrHandler
     End If
 
     BuildOverview cfg, ws, exMarks
     Application.EnableEvents = evState
+    Exit Sub
+ErrHandler:
+    ' Restore EnableEvents, then re-raise so the calling handler
+    ' (CreateOverviewSheet / GenerateMonthSheets) reports the error.
+    Dim errNum As Long, errDesc As String
+    errNum = Err.Number: errDesc = Err.Description
+    Application.EnableEvents = evState
+    Err.Raise errNum, "RefreshOverview", errDesc
 End Sub
 
 Public Sub EnsureOverview(cfg As PropConfig)
@@ -146,11 +155,11 @@ Private Function CaptureExcludes(ws As Worksheet) As Object
     Dim r As Long
     For r = 3 To lastR
         Dim aVal As String: aVal = Trim(CStr(ws.Cells(r, 1).Value))
-        If aVal = "" Then GoTo NextR
+        If aVal = "" Then GoTo NextRow
         If IsNumeric(aVal) Then
             Dim yv As Long: yv = CLng(Val(aVal))
             If yv >= 2000 And yv <= 2100 Then curYear = yv
-            GoTo NextR
+            GoTo NextRow
         End If
         Dim mNum As Long: mNum = MonthNumberFromName(aVal)
         If mNum >= 1 And mNum <= 12 And curYear > 0 Then
@@ -158,7 +167,7 @@ Private Function CaptureExcludes(ws As Worksheet) As Object
                 d(MonthYearPrefix(mNum, curYear)) = "x"
             End If
         End If
-NextR:
+NextRow:
     Next r
     Set CaptureExcludes = d
 End Function

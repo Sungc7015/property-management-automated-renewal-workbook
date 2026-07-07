@@ -10,8 +10,7 @@ Option Explicit
 '  in InsertRowCopyFromSource. Called by modImport.FillSheet and
 '  modDynamic.InsertBufferRow.
 '
-'  Version 2.3.0 - carved from modRenewalImporter + modRenewalDynamic
-'                  + modPropertySetup v1.2.1
+'  Version 2.6.0
 ' ================================================================
 
 ' ----------------------------------------------------------------
@@ -142,7 +141,7 @@ Public Function FindNextBoundary(ws As Worksheet, fromRow As Long) As Long
 End Function
 
 ' ----------------------------------------------------------------
-'  MERGE SAFETY  (the fix lives here)
+'  MERGE SAFETY
 ' ----------------------------------------------------------------
 
 ' Unmerge every merge on row r (cols A through AB).

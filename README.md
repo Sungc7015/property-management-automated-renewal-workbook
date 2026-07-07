@@ -1,6 +1,6 @@
 # Property Management – Automated Renewal Workbook
 
-**Version 2.3.0 (2026-07-03)**  
+**Version 2.6.0 (2026-07-06)**  
 
 A VBA-powered Excel system for property management teams to automate monthly lease renewal tracking. It ingests reports directly from Yardi and RealPage, populates pre-structured month sheets organized by floor plan, and builds a rolling multi-year performance summary — eliminating manual data entry and providing consistent renewal analytics across your portfolio.
 
@@ -70,7 +70,7 @@ Two settings must be enabled in Excel before importing the modules:
    - Check **Trust access to the VBA project object model**
 3. Click OK and restart Excel if prompted.
 
-> **Why:** The `SetupWorkbook` macro programmatically checks that all 8 core modules are present before adding buttons. This requires VBA project object model access. Without it, setup falls back to a warning but still runs. (`modMTM`, the 9th module, is not part of this automated check — see Step 2 — but must still be imported for the [MTM Tracker Workflow](#mtm-tracker-workflow) to work.)
+> **Why:** The `SetupWorkbook` macro programmatically checks that all 9 modules (including `modMTM`) are present before adding buttons. This requires VBA project object model access. Without it, setup falls back to a warning but still runs.
 
 ---
 
@@ -90,7 +90,7 @@ Open the VBA Editor (**Alt + F11**), then import every `.bas` file in this folde
 | 6 | `modSetup.bas` | Creates the Property Setup sheet and month sheets. Depends on modConfig, modSheetUtils. |
 | 7 | `modOverview.bas` | Builds the multi-year summary. Depends on modConfig, modSheetUtils. |
 | 8 | `modAdmin.bas` | One-time setup wizard and health check. Depends on all other modules. |
-| 9 | `modMTM.bas` | MTM tracker sheet refresh and import tools (see [MTM Tracker Workflow](#mtm-tracker-workflow)). Depends on modConfig, modReaders, modSheetUtils. **Not verified by `SetupWorkbook`'s module-presence check** — import it regardless. |
+| 9 | `modMTM.bas` | MTM tracker sheet refresh and import tools (see [MTM Tracker Workflow](#mtm-tracker-workflow)). Depends on modConfig, modReaders, modSheetUtils, modAdmin. **Included in `SetupWorkbook`'s module-presence check** — import it like every other module. |
 
 After importing, the Project Explorer should show all 9 modules under your workbook's **Modules** folder. If any are missing, re-import them.
 
@@ -125,9 +125,10 @@ End Sub
    Press Enter. Alternatively, use **Macro → Run → modAdmin.SetupWorkbook**.
 
 2. SetupWorkbook will:
-   - Verify all 8 core modules are imported (`modMTM` is not included in this check — see [Step 2](#step-2--import-all-9-modules))
+   - Verify all 9 modules are imported (including `modMTM` — see [Step 2](#step-2--import-all-9-modules))
    - Find your Overview sheet (or use Sheet 1 if none exists)
    - Add 5 buttons to that sheet:
+   - Add the 4 MTM tracker buttons to the `MTM` sheet if it already exists (if it doesn't yet, they're wired automatically the first time you run **Refresh MTM Tracker** — see [MTM Tracker Workflow](#mtm-tracker-workflow))
 
 | Button | Macro | Purpose |
 |---|---|---|
@@ -309,19 +310,17 @@ Review and spot-check the other imported columns, particularly:
 
 The MTM Tracker is a dedicated sheet (`MTM`) that tracks month-to-month units separately from the monthly renewal month sheets. It is built and refreshed with `modMTM.RefreshMTMSheet`, independent of the monthly `ImportMonthlyData` flow — though `ImportSelectedMTM` places tracked units onto month sheets, and `FillMTMRows` later enriches those rows during the next monthly import.
 
+> **Sheet rename:** the tab is named `MTM`. This is automatic and self-healing — if your workbook still has the previous `MTM & STL` tab, the next time you run `RefreshMTMSheet`, `ImportSelectedMTM`, or `ClearSelectionMTM` it will be renamed in place (all data and formatting preserved). No manual step is required.
+
 ### Refreshing the Tracker
 
-Click **Refresh MTM Tracker** (or run `modMTM.RefreshMTMSheet`). You'll be prompted for up to three files, in this order:
+Click **Refresh MTM Tracker** (or run `modMTM.RefreshMTMSheet`). You'll be prompted for a single file:
 
 | # | File | Required? | What it's used for |
 |---|---|---|---|
 | 1 | Yardi Rent Roll | **Yes** — Cancel aborts the refresh | Base source for all tracked units (unit, name, floor plan, current rent, market rent, lease expiry) |
-| 2 | RealPage Renewal Offer Analysis Report | Optional — Cancel to skip | Fallback source for short-term-lease detection (see below) |
-| 3 | Resident Lease Expirations report | Optional — Cancel to skip | Preferred source for short-term-lease detection (see below) |
 
-Skipping either optional report degrades gracefully — it only narrows what the tracker can detect for short-term leases. Existing "Active MTM" detection (based purely on the Yardi Rent Roll) is unaffected either way, and skipping one optional report has no effect on the other.
-
-`RefreshMTMSheet` creates the `MTM` sheet if it doesn't already exist, formats it, updates existing tracked units, flags units that have dropped out of the current scan for review, and adds any newly-detected units. Rows are re-sorted by Next Increase date after every refresh.
+`RefreshMTMSheet` creates the `MTM` sheet if it doesn't already exist, formats it, updates existing tracked units, removes units that no longer appear in the current scan, and adds any newly-detected units. The sheet is rebuilt as a single flat list, sorted by Next Increase date after every refresh.
 
 ### Tracker Column Layout
 
@@ -332,62 +331,47 @@ Skipping either optional report degrades gracefully — it only narrows what the
 | C | Floor Plan | Yardi unit type code |
 | D | Lease Expiry | From Yardi Rent Roll |
 | E | Current Rent | From Yardi Rent Roll |
-| F | Last Increase | **Manual entry** — the date of the unit's last rent increase. Drives the calculated Next Increase date for `Active MTM` rows. |
+| F | Last Increase | **Manual entry** — the date of the unit's last rent increase. Drives the calculated Next Increase date. |
 | G | Market Rent | From Yardi Rent Roll |
-| H | Next Increase | Calculated — see below |
+| H | Next Increase | Calculated — Last Increase + 1 year + 1 day |
 | I | Status | See [Status Column Values](#status-column-values) below |
-| J | Notes | Manual for `Active MTM` rows; auto-generated and auto-refreshed on every subsequent refresh for `Short Term` rows (system-calculated, not manual) |
+| J | Notes | Manual. If Last Increase (F) is blank and the unit's lease expiry is more than 15 months past-due, a note is auto-written here on refresh ("Lease expired 15+ months ago — verify resident ledger for actual increase history") — but only if J is currently blank; an existing manual note is never overwritten. |
 | K | Import | Form Control checkbox — check to include the row in the next `ImportSelectedMTM` run |
 
 ### Status Column Values
 
 | Status | Highlight | Meaning |
 |---|---|---|
-| `Active MTM` | Green | The unit's Yardi lease expiry is already past-due (or a non-date value) — it's genuinely on a month-to-month basis today. |
-| `⚠ Review - may have renewed` | Red/pink | A previously-tracked unit that no longer shows up in the current Active MTM scan. It may have renewed — review needed. |
-| `Short Term` *(new in 2.3.0)* | Amber/orange | The unit still has a valid **future** lease expiry, but its actual lease term is under 12 months, so per company policy it can't be increased until 12 months after the lease's commencement date. These rows show **no Import checkbox** — informational only, since they aren't actually MTM yet. |
+| `Eligible` | Green | Next Increase is today or in the past (or blank). |
+| `Not Yet Eligible` | Amber/orange | Next Increase is a future date. |
 
-For an `Active MTM` row, the Next Increase date only calculates once column F (Last Increase) is filled in manually: Next Increase = Last Increase + 12 months, rounded up to the 1st of the month.
-
-### Short-Term Lease Detection
-
-When a unit's Yardi lease expiry is still in the future, `RefreshMTMSheet` checks whether the lease's actual term is under 12 months. The term (and the resulting Next Increase date) is computed in this priority order:
-
-1. **Preferred — Resident Lease Expirations report provided.** Exact term = Lease To − Lease From. Next Increase = Lease From + 12 months, rounded up to the 1st of the month.
-2. **Fallback — Resident Lease Expirations not provided, but RealPage Renewal Offer Analysis was.** Approximate term is read from RealPage's "Current Lease | Term" field. Next Increase = Lease Expiry + (12 − term) months, rounded up to the 1st of the month.
-3. **Neither report provided.** Short-term detection is skipped for that refresh — existing Active MTM detection is unaffected either way.
-
-When a unit is flagged `Short Term`, column J (Notes) is automatically (re)written on every refresh with a sentence in this format:
-
-```
-Short term lease: X months, next increase date is M/D/YYYY
-```
+Status is **informational only** — it does not affect checkbox availability or import behavior. A CM can check and import any row regardless of its Status.
 
 ### Importing Selected Units (`ImportSelectedMTM`)
 
 Check the Import column (K) for the units you want to move onto a month sheet, then click **Import Selected MTM** (or run `modMTM.ImportSelectedMTM`). For each checked row, the unit is placed onto the correct month sheet — determined by its Next Increase date — in the correct floor-plan section.
 
-As of 2.3.0, `ImportSelectedMTM` also carries over the Resident Name, Floor Plan, and Current Rent from the tracker row onto the month sheet at the same time (previously it only wrote the apt#).
+`ImportSelectedMTM` also carries over the Resident Name, Floor Plan, and Current Rent from the tracker row onto the month sheet at the same time.
 
 ### `FillMTMRows` (runs during the monthly import)
 
 `FillMTMRows` is not part of `RefreshMTMSheet` — it runs automatically as part of the normal monthly `ImportMonthlyData` import (see [Running the Import](#running-the-import)). It fills in additional fields on any month-sheet row that came from an MTM import, using that month's fresh report data:
 
-- As of 2.3.0, the monthly report data is allowed to **override** the Name / Floor Plan / Current Rent that `ImportSelectedMTM` carried over, in case the tracker snapshot was stale by import time.
-- The RealPage Renewal Offer Analysis report now also feeds these rows for column F, using the same grid-preferred / RealPage-fallback precedence used for regular renewal rows.
+- The monthly report data is allowed to **override** the Name / Floor Plan / Current Rent that `ImportSelectedMTM` carried over, in case the tracker snapshot was stale by import time.
+- The RealPage Renewal Offer Analysis report also feeds these rows for column F, using the same grid-preferred / RealPage-fallback precedence used for regular renewal rows.
 - Column T (Current Term) shows a bold, yellow-highlighted `"MTM"` tag for these rows instead of a numeric term.
-- Column A (Renewal Status) is deliberately left untouched/blank for MTM rows — previously it was auto-set to `MTM` on every import; this was changed so column A stays a purely manual field. (See the [Column Reference](#column-reference-month-sheets) notes on columns A and T.)
+- Column A (Renewal Status) is deliberately left untouched/blank for MTM rows — it stays a purely manual field. (See the [Column Reference](#column-reference-month-sheets) notes on columns A and T.)
 
 ### Buttons
 
-`SetupWorkbook` does **not** add these buttons automatically — insert them yourself on the `MTM` sheet (**Insert → Form Controls → Button**, then assign the macro), the same way the [Step 4](#step-4--run-setupworkbook) buttons are added:
+These 4 buttons are wired onto the `MTM` sheet automatically — no manual setup step is required. `SetupWorkbook` adds them if the `MTM` sheet already exists; if it doesn't yet, `RefreshMTMSheet` adds them itself the first time it creates the sheet.
 
 | Button | Macro | Purpose |
 |---|---|---|
-| Refresh MTM Tracker | `modMTM.RefreshMTMSheet` | Build/update the MTM tracker from the Yardi Rent Roll (+ optional RealPage and Resident Lease Expirations reports) |
+| Refresh MTM Tracker | `modMTM.RefreshMTMSheet` | Build/update the MTM tracker from the Yardi Rent Roll |
 | Import Selected MTM | `modMTM.ImportSelectedMTM` | Place checked tracker rows onto the correct month sheet |
-| Select All MTM | `modMTM.SelectAllMTM` | Check every Import checkbox on the tracker |
 | Clear Selection MTM | `modMTM.ClearSelectionMTM` | Uncheck every Import checkbox on the tracker |
+| Sort MTM Tracker | `modMTM.SortMTMSheet` | Manually re-sort by Next Increase (col H) on demand — also recalculates Next Increase/Status from any manual Last Increase edits before sorting — without running a full refresh |
 
 ---
 
@@ -486,13 +470,13 @@ If broken named ranges are found, regenerate the affected month sheet by deletin
 |---|---|---|
 | `modConfig` | Core config type and all loading/lookup helpers. **Import first.** | `LoadConfig`, `GetGroupForCode`, `MatchesAnyPattern`, `GroupIndex` |
 | `modSheetUtils` | Worksheet utilities: sheet naming, section detection, merge safety, row insert helper | `InsertRowCopyFromSource`, `IsSectionBar`, `ParseMonthSheet`, `MonthSheetName`, `SheetExists` |
-| `modReaders` | All external file reading — pure data extraction, no sheet writes | `ReadYardi`, `ReadUnitStats`, `ReadRP`, `ReadUnitRentsGrid`, `ReadMovein`, `PickFile` |
+| `modReaders` | All external file reading — pure data extraction, no sheet writes | `ReadYardi`, `ReadYardiMTM`, `ReadUnitStats`, `ReadRP`, `ReadUnitRentsGrid`, `ReadMovein`, `PickFile` |
 | `modImport` | Import button handler and orchestration; calls Readers then writes to month sheet | `ImportMonthlyData`, `DoImport`, `FillSheet`, `ResolveMonthSheet` |
 | `modDynamic` | Live buffer row insertion via `Workbook_SheetChange` | `HandleSheetChange` |
 | `modSetup` | Property Setup sheet creation and month sheet generation | `CreateSetupSheet`, `GenerateMonthSheets` |
 | `modOverview` | Builds and refreshes the multi-year renewal summary | `CreateOverviewSheet`, `RefreshOverview`, `FindOverviewName` |
-| `modAdmin` | One-time setup wizard and health check | `SetupWorkbook`, `HealthCheck` |
-| `modMTM` | MTM tracker sheet refresh, short-term-lease detection, and checkbox-based import to month sheets (see [MTM Tracker Workflow](#mtm-tracker-workflow)) | `RefreshMTMSheet`, `ImportSelectedMTM`, `SelectAllMTM`, `ClearSelectionMTM` |
+| `modAdmin` | One-time setup wizard and health check; also exposes the shared `AddButton` helper used by both its own setup buttons and `modMTM.EnsureMTMButtons` | `SetupWorkbook`, `HealthCheck`, `AddButton` |
+| `modMTM` | MTM tracker sheet refresh and checkbox-based import to month sheets (see [MTM Tracker Workflow](#mtm-tracker-workflow)) | `RefreshMTMSheet`, `ImportSelectedMTM`, `ClearSelectionMTM`, `SortMTMSheet`, `EnsureMTMButtons` |
 
 ---
 
@@ -526,12 +510,25 @@ Verify that `ThisWorkbook` contains the `Workbook_SheetChange` event calling `mo
 ### "The Move-in Box Score file contains VBA macros and was not loaded"
 The `.xls` file you selected contains embedded VBA code, which is not present in a legitimate RealPage export. Re-export the Move-in Box Score directly from RealPage and try again. Do not use a file that has been modified or re-saved in Excel.
 
+### "Syntax error" when importing modMTM.bas into the VBA Editor
+If **File → Import File** rejects `modMTM.bas` with a bare "Syntax error" and no line number, the leading (unproven but easy to test) theory is a stale or conflicting `modMTM` component already sitting in the workbook's VBA project — for example, a partially-imported module left over from a previous attempt, or a copy under a slightly different internal state than the Project Explorer shows. Before re-importing:
+
+1. Open the VBA Editor (**Alt + F11**).
+2. In the Project Explorer, right-click any existing `modMTM` under **Modules** and choose **Remove modMTM** (if prompted to export first, you can skip it — you're re-importing the file from disk anyway).
+3. Save the workbook, close and reopen Excel (a fresh VBA project state rules out any stale in-memory component).
+4. Re-run **File → Import File** and select `modMTM.bas` again.
+
+If the error still recurs after a clean removal and a fresh Excel session, that points back to a source-level defect rather than a stale-module conflict — in that case, check the file for anything the [structural hygiene checklist](#module-reference) below is meant to catch (non-ASCII characters, a BOM, mixed line endings, a missing trailing newline, or a blank line immediately before a declaration) using a hex-capable editor, since Notepad/Wordpad-style editors can hide these.
+
 ---
 
 ## Version History
 
 | Version | Date | Changes |
 |---|---|---|
+| 2.6.0 | 2026-07-06 | Clean structural rewrite of all 9 modules (ASCII-only source, no BOM, consistent line endings, one trailing newline, standardized `Next<Noun>:` loop-continue labels, balanced-block self-check on every file). `modAdmin.SetupWorkbook` now includes `modMTM` in its module-presence check and wires the 4 MTM tracker buttons directly onto the `MTM` sheet if it already exists; a new `modMTM.EnsureMTMButtons` helper wires them automatically the first time `RefreshMTMSheet` creates the sheet, so no manual button setup is ever required. Fixed a real bug in `modDynamic`: the module-level Buffer Rows cache was only invalidated by an explicit call from `SetupWorkbook`, contradicting the documented "takes effect immediately" behavior — the cache is removed entirely and `GetBufferRows` now reads `PS.BufferRows` fresh every time. `modImport.FillSheet`'s inlined 4-step row-insert sequence now calls the shared `modSheetUtils.InsertRowCopyFromSource` helper instead of duplicating it. `modReaders.ReadYardiMTM` now returns a `Dictionary` of `MTMUnitRec` records (Unit, Name, FloorPlanCode, MarketRent, ActualRent, ExpiryVal, StaleOut) instead of a positional `Array(...)`, and `modImport.FillMTMRows` / `modMTM.WriteMTMDataRow` read named fields off the record instead of guessing array indices. Replaced a runtime `ChrW(8212)` em-dash in `modMTM`'s auto-note with a plain `" - "` string. Fixed a stray mis-encoded em-dash in a `modDynamic` comment that a prior encoding-corruption cleanup pass had missed. |
+| 2.5.0 | 2026-07-03 | MTM Tracker reverted to a single flat, single-sorted list (no more Active MTM / Short Term sections or divider row); removed the RealPage and Resident Lease Expirations report prompts and short-term-lease detection entirely — back to Yardi Rent Roll only; Status (col I) is now a purely informational `Eligible`/`Not Yet Eligible` label with no effect on checkbox availability or import behavior; Next Increase now computed as Last Increase + 1 year + 1 day; added a 15-month-staleness auto-note in col J; `SortMTMSheet` now also recalculates Next Increase/Status from manual edits before sorting; tracker tab renamed back `MTM & STL` → `MTM` with automatic self-healing migration for existing workbooks. |
+| 2.4.0 | 2026-07-03 | MTM Tracker sheet rebuilt as two physically separated, independently-sorted sections (Active MTM, then a divider bar, then Short Term) instead of one flat sorted list; removed the `⚠ Review - may have renewed` status entirely — units that drop out of the current scan are now silently removed instead of flagged; removed `SelectAllMTM` and hardened `ImportSelectedMTM`/`ClearSelectionMTM` against section-bar rows; tracker tab renamed `MTM` → `MTM & STL` with automatic self-healing migration for existing workbooks. |
 | 2.3.0 | 2026-07-03 | MTM tracker carries Name/Floor Plan/Current Rent on import; RealPage report enriches MTM rows; MTM tag highlighted instead of column A; short-term-lease detection via Resident Lease Expirations report (RealPage fallback). |
 | 2.2.0 | 2026-07-03 | Added modMTM: MTM tracker with checkbox import, FillMTMRows auto-fill. |
 | 2.1.1 | 2026-06-22 | Bug fixes and hardening: fixed workbook resource leak when import errors mid-run; replaced `Integer` with `Long` for month/year variables to prevent overflow; added missing column-0 guard in `ReadUnitRentsGrid`; fixed import prompt column labels (L/X were mislabelled K/W); added `HasVBProject` security check on Move-in Box Score; removed stale buffer-row cache so Setup sheet changes take effect immediately; replaced magic-number literals with named constants; removed full-sheet font assignments that caused slow month sheet generation. |
