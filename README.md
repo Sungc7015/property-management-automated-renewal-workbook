@@ -1,6 +1,6 @@
 # Property Management – Automated Renewal Workbook
 
-**Version 2.8.0 (2026-07-07)**  
+**Version 2.9.0 (2026-07-07)**  
 
 A VBA-powered Excel system for property management teams to automate monthly lease renewal tracking. It ingests reports directly from Yardi and RealPage, populates pre-structured month sheets organized by floor plan, and builds a rolling multi-year performance summary — eliminating manual data entry and providing consistent renewal analytics across your portfolio.
 
