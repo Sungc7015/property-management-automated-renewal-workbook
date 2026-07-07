@@ -15,6 +15,9 @@ Private Const DEBUG_IMPORT As Boolean = False
 '         modSheetUtils (IsSectionBar, InsertRowCopyFromSource,
 '                        ClearDataCells, SheetExists, MonthSheetName,
 '                        MonthYearPrefix)
+'         modMTM (SetMTMAnchor - keeps the MTM tracker's Pending
+'                 (Manual) rolling 3-month window anchored to the
+'                 most recently imported month/year)
 '
 '  Version 2.6.0
 ' ================================================================
@@ -108,6 +111,12 @@ Public Sub ImportMonthlyData()
 
     Dim msg As String
     msg = DoImport(cfg, mNum, yr, yardiPath, statsPath, rpPath, gridPath, moveinPath)
+
+    ' Keep the MTM tracker's Pending (Manual) rolling 3-month window
+    ' anchored to whichever month/year was most recently imported.
+    ' Skip if DoImport never found a sheet to import into (no error is
+    ' raised in that case - it just returns early with a message).
+    If ResolveMonthSheet(mNum, yr) <> "" Then modMTM.SetMTMAnchor CLng(mNum), CLng(yr)
 
     Application.Calculation = xlCalculationAutomatic
     Application.ScreenUpdating = True

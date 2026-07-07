@@ -22,6 +22,17 @@ Option Explicit
 '  change event, so Setup-sheet edits take effect immediately
 '  (matching the documented behavior). The read only happens after
 '  the cheap short-circuit checks in HandleSheetChange pass.
+'
+'  Added: live "Pending (Manual)" MTM pickup - the instant col A
+'  (Renewal Status) is set to "MTM" on a month sheet inside the
+'  current rolling 3-month window, HandlePendingStatusChange copies
+'  that unit onto the MTM tracker's Pending section immediately. This
+'  module now also depends on modMTM (GetMTMAnchorDate, AddPendingUnit)
+'  in addition to modSheetUtils. Window membership is decided by
+'  parsing the sheet's own name via modSheetUtils.ParseMonthSheet and
+'  comparing (month, year) against the anchor window, rather than by
+'  exact-string-matching canonical sheet names, so legacy-named month
+'  sheets (e.g. "March 2026") are still correctly included/excluded.
 ' ================================================================
 
 ' ----------------------------------------------------------------
@@ -44,8 +55,14 @@ Public Sub HandleSheetChange(Sh As Object, Target As Range)
     Dim ws As Worksheet: Set ws = Sh
 
     If Not IsMonthlySheet(ws.Name) Then Exit Sub
-    If Target.Column <> 2 Then Exit Sub        ' watch col B (Apt#) only
     If Target.Cells.Count > 1 Then Exit Sub    ' ignore multi-cell paste
+
+    If Target.Column = 1 Then                  ' watch col A (Renewal Status)
+        HandlePendingStatusChange ws, Target   ' for the live MTM Pending pickup
+        Exit Sub
+    End If
+
+    If Target.Column <> 2 Then Exit Sub        ' watch col B (Apt#) only
     If Target.Row <= 2 Then Exit Sub
     If IsEmpty(Target.Value) Then Exit Sub
     If Trim(CStr(Target.Value)) = "" Then Exit Sub
@@ -89,4 +106,57 @@ Private Sub InsertBufferRow(ws As Worksheet, insertAt As Long)
     Next col
     ws.Cells(insertAt, 9).Value = 0    ' I: Pet Fees default
     ws.Rows(insertAt).RowHeight = 20.1
+End Sub
+
+' ----------------------------------------------------------------
+'  HandlePendingStatusChange  -  live trigger: the instant col A
+'  (Renewal Status) is set to "MTM" on a month sheet inside the
+'  current 3-month Pending window (anchored to modMTM.GetMTMAnchorDate),
+'  copy that unit onto the MTM tracker's Pending (Manual) section
+'  immediately. Every other Renewal Status value (Renewed/NTV/Pending/
+'  blank) is a cheap no-op. Window membership is decided by parsing
+'  this sheet's own name via modSheetUtils.ParseMonthSheet and
+'  comparing its (month, year) against the 3 (month, year) pairs the
+'  anchor window represents - not by exact-string-matching canonical
+'  sheet names - so legacy-named sheets are still correctly included/
+'  excluded. Wrapped in the same EnableEvents/On Error pattern as
+'  InsertBufferRow above (covering everything from resolving the
+'  anchor through calling AddPendingUnit), since this writes to a
+'  different sheet (the MTM tracker) than the one that raised the
+'  event.
+' ----------------------------------------------------------------
+Private Sub HandlePendingStatusChange(ws As Worksheet, Target As Range)
+    If Target.Row <= 2 Then Exit Sub
+    If IsSectionHeader(ws, Target.Row) Then Exit Sub
+    If LCase(Trim(CStr(Target.Value))) <> "mtm" Then Exit Sub
+
+    Application.EnableEvents = False
+    On Error GoTo ReEnable
+
+    Dim curMonth As Long, curYear As Long
+    If Not modSheetUtils.ParseMonthSheet(ws.Name, curMonth, curYear) Then GoTo ReEnable
+
+    Dim anchorDate As Date: anchorDate = modMTM.GetMTMAnchorDate()
+    Dim inWindow As Boolean: inWindow = False
+    Dim offset As Long
+    For offset = -2 To 0
+        Dim wDate As Date: wDate = DateAdd("m", offset, anchorDate)
+        If curMonth = Month(wDate) And curYear = Year(wDate) Then inWindow = True: Exit For
+    Next offset
+    If Not inWindow Then GoTo ReEnable
+
+    Dim r As Long: r = Target.Row
+    Dim unitNum As String: unitNum = Trim(CStr(ws.Cells(r, 2).Value))
+    If unitNum = "" Then GoTo ReEnable
+
+    Dim residentName As String: residentName = Trim(CStr(ws.Cells(r, 3).Value))
+    Dim fpCode       As String: fpCode       = Trim(CStr(ws.Cells(r, 4).Value))
+    Dim currentRent  As Variant: currentRent = ws.Cells(r, 5).Value
+
+    modMTM.AddPendingUnit unitNum, residentName, fpCode, currentRent, ws.Name
+ReEnable:
+    Application.EnableEvents = True
+    If Err.Number <> 0 Then
+        MsgBox "Pending MTM pickup failed: " & Err.Description, vbExclamation, "Dynamic Row Error"
+    End If
 End Sub

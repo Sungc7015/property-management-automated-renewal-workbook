@@ -11,6 +11,11 @@ Option Explicit
 '  modDynamic.InsertBufferRow.
 '
 '  Version 2.6.0
+'
+'  PendingWindowSheets - added for the MTM tracker's "Pending (Manual)"
+'  section: returns the rolling 3-month window of month-sheet names
+'  used by modMTM (section builder) and modDynamic (live "MTM" status
+'  trigger).
 ' ================================================================
 
 ' ----------------------------------------------------------------
@@ -84,6 +89,25 @@ End Function
 
 Public Function MonthSheetName(ByVal mNum As Long, ByVal yr As Long) As String
     MonthSheetName = MonthPrefix(mNum) & " " & Format(yr Mod 100, "00")
+End Function
+
+' ----------------------------------------------------------------
+'  PendingWindowSheets  -  returns the 3 month-sheet names making up
+'  the rolling MTM "Pending (Manual)" window, oldest to newest:
+'  Array(twoBackName, oneBackName, currentName), where "current" is
+'  whatever month/year was most recently imported via
+'  modImport.ImportMonthlyData (the anchorDate passed in - see
+'  modMTM.GetMTMAnchorDate). Used by modMTM (Pending section builder)
+'  and modDynamic (live "MTM" status trigger) to decide which month
+'  sheets are in scope for Pending.
+' ----------------------------------------------------------------
+Public Function PendingWindowSheets(anchorDate As Date) As Variant
+    Dim twoBack As Date: twoBack = DateAdd("m", -2, anchorDate)
+    Dim oneBack As Date: oneBack = DateAdd("m", -1, anchorDate)
+    PendingWindowSheets = Array( _
+        MonthSheetName(Month(twoBack), Year(twoBack)), _
+        MonthSheetName(Month(oneBack), Year(oneBack)), _
+        MonthSheetName(Month(anchorDate), Year(anchorDate)))
 End Function
 
 ' ----------------------------------------------------------------
