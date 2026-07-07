@@ -123,7 +123,8 @@ End Sub
 '  InsertBufferRow above (covering everything from resolving the
 '  anchor through calling AddPendingUnit), since this writes to a
 '  different sheet (the MTM tracker) than the one that raised the
-'  event.
+'  event. Also carries the row's col S ("MTM Rate") over to
+'  AddPendingUnit, which lands in Pending's New MTM Rate column.
 ' ----------------------------------------------------------------
 Private Sub HandlePendingStatusChange(ws As Worksheet, Target As Range)
     If Target.Row <= 2 Then Exit Sub
@@ -152,8 +153,9 @@ Private Sub HandlePendingStatusChange(ws As Worksheet, Target As Range)
     Dim residentName As String: residentName = Trim(CStr(ws.Cells(r, 3).Value))
     Dim fpCode       As String: fpCode       = Trim(CStr(ws.Cells(r, 4).Value))
     Dim currentRent  As Variant: currentRent = ws.Cells(r, 5).Value
+    Dim mtmRate      As Variant: mtmRate     = ws.Cells(r, 19).Value   ' col S: MTM Rate
 
-    modMTM.AddPendingUnit unitNum, residentName, fpCode, currentRent, ws.Name
+    modMTM.AddPendingUnit unitNum, residentName, fpCode, currentRent, ws.Name, mtmRate
 ReEnable:
     Application.EnableEvents = True
     If Err.Number <> 0 Then

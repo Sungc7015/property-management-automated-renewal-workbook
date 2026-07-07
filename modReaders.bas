@@ -453,9 +453,20 @@ End Sub
 '                   than 15 months ago (per DateDiff("m", ...)),
 '                   else False. Non-date expiries are always
 '                   StaleOut = False.
+'
+'                   allMarketRent (optional, ByRef) - if a Dictionary is
+'                   passed in, it's populated with every occupied unit's
+'                   Market Rent (numeric only) keyed by unit number,
+'                   regardless of MTM status - unlike recs()/dict above,
+'                   which only cover units already MTM in this Rent Roll.
+'                   Used by modMTM.BuildPendingSection to look up Market
+'                   Rent for Pending (Manual) units, which by definition
+'                   aren't MTM in Yardi yet. Caller must set its
+'                   CompareMode before passing it in.
 ' ----------------------------------------------------------------
 Public Function ReadYardiMTM(cfg As PropConfig, wb As Workbook, _
-                             recs() As MTMUnitRec) As Object
+                             recs() As MTMUnitRec, _
+                             Optional allMarketRent As Object) As Object
     Dim dict As Object: Set dict = CreateObject("Scripting.Dictionary")
     dict.CompareMode = 1   ' vbTextCompare
     ReDim recs(0)
@@ -495,6 +506,15 @@ Public Function ReadYardiMTM(cfg As PropConfig, wb As Workbook, _
         Dim actRaw As Variant: actRaw = ws.Cells(r, cA).Value
         If Not IsNumeric(actRaw) Then GoTo NextRow
         If CDbl(actRaw) <= 0 Then GoTo NextRow
+
+        ' Capture Market Rent for every occupied unit regardless of MTM
+        ' status - before the isMTM-only filter below.
+        If Not (allMarketRent Is Nothing) Then
+            Dim mrRaw As Variant: mrRaw = ws.Cells(r, cM).Value
+            If IsNumeric(mrRaw) Then
+                If Not allMarketRent.Exists(u) Then allMarketRent.Add u, CDbl(mrRaw)
+            End If
+        End If
 
         ' Keep only past-date or non-date expiry (opposite of ReadYardi).
         Dim expCell As Variant: expCell = ws.Cells(r, cE).Value

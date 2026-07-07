@@ -20,8 +20,11 @@ Option Explicit
 '  built entirely from the Yardi Rent Roll (no RealPage or Resident
 '  Lease Expirations inputs). Status (col I) is a purely informational
 '  "Eligible"/"Not Yet Eligible" label - it has no effect on checkbox
-'  availability or import behavior. Next Increase = Last Increase + 1
-'  year + 1 day. If Last Increase is blank and the unit's lease expiry
+'  availability or import behavior. Next Increase = Last Increase + 12
+'  months exactly (see NextIncreaseDate), computed only when a unit has
+'  no prior Next Increase on record - existing values are always carried
+'  forward untouched on refresh/sort. If Last Increase is blank and the
+'  unit's lease expiry
 '  is more than 15 months past-due, a note is auto-written to col J
 '  (never overwriting an existing manual note) prompting the CM to
 '  verify the resident ledger.
@@ -45,6 +48,12 @@ Option Explicit
 '  truth. FindConfirmedLastRow replaces the old blind
 '  Cells(Rows.Count,1).End(xlUp) pattern everywhere in this module so
 '  Confirmed-section logic never reaches down into Pending's rows.
+'  Pending also carries 4 extra cols (F-I: Expected Increase Date, New
+'  MTM Rate, Market Rent, Notes) so a unit's info is ready to move over
+'  once it becomes a real Confirmed row - Market Rent is auto-imported
+'  from the Rent Roll each refresh (see BuildPendingSection), the other
+'  3 are manually maintained by the CM and carried forward across
+'  rebuilds (see SnapshotPendingSection).
 ' ================================================================
 
 Private Const MTM_SHEET     As String = "MTM"
@@ -95,7 +104,14 @@ Public Sub RefreshMTMSheet()
 
     Dim mtmRecs() As MTMUnitRec
     Dim mtmDict As Object
-    Set mtmDict = ReadYardiMTM(cfg, yardiWB, mtmRecs)
+    ' allMarketRent covers every occupied unit's Market Rent regardless of
+    ' MTM status (mtmDict/mtmRecs only cover units already MTM in Yardi) -
+    ' used to auto-populate Pending (Manual)'s Market Rent column, since
+    ' the Rent Roll workbook is closed right below and unavailable by the
+    ' time BuildPendingSection runs.
+    Dim allMarketRent As Object: Set allMarketRent = CreateObject("Scripting.Dictionary")
+    allMarketRent.CompareMode = 1
+    Set mtmDict = ReadYardiMTM(cfg, yardiWB, mtmRecs, allMarketRent)
     yardiWB.Close False
     Set yardiWB = Nothing
 
@@ -111,7 +127,7 @@ Public Sub RefreshMTMSheet()
 
     FormatMTMSheet ws, cfg
     WriteHeaders ws, cfg
-    DoRefreshMTM ws, mtmDict, mtmRecs, anchorDate
+    DoRefreshMTM ws, mtmDict, mtmRecs, anchorDate, allMarketRent
     EnsureMTMButtons
 
     Application.Calculation = xlCalculationAutomatic
@@ -228,11 +244,10 @@ End Sub
 ' ----------------------------------------------------------------
 '  SortMTMSheet  -  manually re-sorts the MTM tab by col H (Next
 '  Increase), on demand, without running a full RefreshMTMSheet.
-'  Before sorting, recomputes each row's Next Increase (H) and Status
-'  (I) from its current Last Increase (F) value, so that manually
-'  typing in a new Last Increase date and clicking Sort actually
-'  produces the correct updated Next Increase/Status/row-position
-'  (previously this only re-sorted stale existing H/I values).
+'  Next Increase (H) is left exactly as-is - Sort only reorders rows
+'  by the existing H values and refreshes Status (I) to match, it never
+'  overwrites H itself. Also dedups the Pending (Manual) section by
+'  col A (Unit), deleting any duplicate rows found there.
 ' ----------------------------------------------------------------
 Public Sub SortMTMSheet()
     MigrateMTMSheetName
@@ -252,24 +267,52 @@ Public Sub SortMTMSheet()
     On Error GoTo ErrHandler
     Application.ScreenUpdating = False
 
-    ' Recompute H (Next Increase) and I (Status) from the current F value
-    ' before sorting, so manual edits to Last Increase are reflected.
+    ' Refresh Status (I) from whatever is already sitting in Next Increase
+    ' (H) - H itself is never written here, so existing Next Increase data
+    ' survives a Sort untouched.
     ' targetEnd = last calendar date of the month containing today+90 days.
     Dim tDate As Date: tDate = Now + 90
     Dim targetEnd As Date: targetEnd = DateSerial(Year(tDate), Month(tDate) + 1, 1) - 1
     Dim r As Long
     For r = DATA_START To lastRow
-        Dim fVal As Variant: fVal = ws.Cells(r, 6).Value
-        If IsDate(fVal) Then
-            ws.Cells(r, 8).Value = NextIncreaseDate(CDate(fVal))
-        Else
-            ws.Cells(r, 8).Value = ""
-        End If
         ws.Cells(r, 9).Value = MTMStatusLabel(ws.Cells(r, 8).Value, targetEnd)
     Next r
 
-    ws.Range(ws.Cells(DATA_START, 1), ws.Cells(lastRow, COL_COUNT)).Sort _
-        Key1:=ws.Cells(DATA_START, 8), Order1:=xlAscending, Header:=xlNo
+    ' Row 2 is a live "MTMTable" ListObject header. Sorting via a raw
+    ' Range.Sort on the data body is unreliable for a Table (Excel does not
+    ' reliably keep the header pinned at row 2 and resets it to the Table
+    ' Style's default look) - go through the ListObject's own Sort object
+    ' instead, which is the supported way to sort part of a Table.
+    Dim lo As ListObject
+    On Error Resume Next
+    Set lo = ws.ListObjects("MTMTable")
+    On Error GoTo ErrHandler
+    If Not lo Is Nothing Then
+        With lo.Sort
+            .SortFields.Clear
+            .SortFields.Add Key:=ws.Cells(DATA_START, 8), SortOn:=xlSortOnValues, Order:=xlAscending
+            .Header = xlYes
+            .Apply
+        End With
+    Else
+        ws.Range(ws.Cells(DATA_START, 1), ws.Cells(lastRow, COL_COUNT)).Sort _
+            Key1:=ws.Cells(DATA_START, 8), Order1:=xlAscending, Header:=xlNo
+    End If
+
+    ' Sorting the Table resets its header row to the Table Style's own
+    ' fill/font (mirrors the reapply block in DoRefreshMTM after rebuilding
+    ' MTMTable) - put the black-on-grey header look back.
+    With ws.Range(ws.Cells(2, 1), ws.Cells(2, COL_COUNT))
+        .Font.Bold = True
+        .Font.Color = RGB(0, 0, 0)
+        .WrapText = True
+        .HorizontalAlignment = xlCenter
+        .VerticalAlignment = xlCenter
+        .Interior.Color = BAR_GREY
+        .Borders.LineStyle = xlContinuous
+        .Borders.Weight = xlThin
+        .Borders(xlEdgeBottom).Weight = xlMedium
+    End With
 
     ' Re-sorting reshuffles which rows are odd/even - refresh the banding.
     ApplyRowBanding ws, lastRow
@@ -277,12 +320,52 @@ Public Sub SortMTMSheet()
     ' Rebuild checkboxes at their new row positions
     SyncCheckboxes ws
 
+    ' Remove any duplicate Units that have landed in the Pending (Manual)
+    ' section (col A), keeping the first occurrence of each.
+    DedupPendingSection ws
+
     Application.ScreenUpdating = True
     Exit Sub
 
 ErrHandler:
     Application.ScreenUpdating = True
     MsgBox "Sort MTM error: " & Err.Description, vbCritical, "Sort MTM"
+End Sub
+
+' ----------------------------------------------------------------
+'  DedupPendingSection  -  scans the Pending (Manual) block's data rows
+'  for duplicate Units (col A) and deletes the duplicates, keeping the
+'  first occurrence. A safety-net cleanup run from SortMTMSheet -
+'  BuildPendingSection/AddPendingUnit already dedup on write, but this
+'  catches any duplicates that end up in the section regardless.
+' ----------------------------------------------------------------
+Private Sub DedupPendingSection(ws As Worksheet)
+    Dim divRow As Long, hdrRow As Long, dFirst As Long, dLast As Long
+    If Not FindPendingRange(ws, divRow, hdrRow, dFirst, dLast) Then Exit Sub
+    If dLast < dFirst Then Exit Sub
+
+    Dim seen As Object: Set seen = CreateObject("Scripting.Dictionary")
+    seen.CompareMode = 1
+    Dim dupRows As Collection: Set dupRows = New Collection
+    Dim r As Long
+    For r = dFirst To dLast
+        Dim u As String: u = Trim(CStr(ws.Cells(r, 1).Value))
+        If u <> "" Then
+            If seen.Exists(u) Then
+                dupRows.Add r
+            Else
+                seen(u) = True
+            End If
+        End If
+    Next r
+
+    ' Delete bottom-up (one row at a time, highest row first) rather than
+    ' a single multi-area Union delete, so this doesn't depend on Excel's
+    ' handling of a non-contiguous Range.Delete.
+    Dim i As Long
+    For i = dupRows.Count To 1 Step -1
+        ws.Range(ws.Cells(dupRows(i), 1), ws.Cells(dupRows(i), COL_COUNT)).Delete Shift:=xlUp
+    Next i
 End Sub
 
 ' ----------------------------------------------------------------
@@ -372,6 +455,23 @@ Private Sub FormatMTMSheet(ws As Worksheet, cfg As PropConfig)
     Set fcS = ws.Range("I3:I2000").FormatConditions.Add( _
         Type:=xlExpression, Formula1:="=$I3=""Not Yet Eligible""")
     fcS.Interior.Color = RGB(255, 230, 153)
+
+    ' Pending (Manual) usage reminder, fixed at cols M-Q starting a couple
+    ' rows below the button grid (which lives within row 2's own height -
+    ' see EnsureMTMButtons) - a static note, not tied to the Pending
+    ' block's row position, so it never needs to move as Confirmed/Pending
+    ' grow or shrink on refresh.
+    With ws.Range(ws.Cells(4, "M"), ws.Cells(9, "Q"))
+        .Merge
+        .Value = "Reminder: units in the ""Pending (Manual)"" section below are not yet MTM on the Yardi Rent Roll. Once a unit shows up as its own row in the tracker above - usually within the next couple of months, after a Refresh MTM Tracker picks it up from the Rent Roll - it is automatically removed from Pending (Manual) on that same refresh, carrying over its Expected Increase Date/New MTM Rate/Notes. No manual cleanup needed."
+        .Font.Name = "Calibri"
+        .Font.Italic = True
+        .Font.Size = 10
+        .Font.Color = RGB(89, 89, 89)
+        .WrapText = True
+        .HorizontalAlignment = xlLeft
+        .VerticalAlignment = xlTop
+    End With
 
     With ws.Parent.Windows(1)
         .FreezePanes = False
@@ -465,16 +565,18 @@ End Function
 '  mtmDict maps unit number -> index into mtmRecs() (see
 '  modReaders.ReadYardiMTM).
 '
-'  Cols F (Last Increase), J (Notes), and K (checkbox) are manual/
-'  carried and are pulled forward verbatim from the pre-refresh
-'  snapshot if the unit existed in it.
+'  Cols F (Last Increase), H (Next Increase), J (Notes), and K (checkbox)
+'  are manual/carried and are pulled forward verbatim from the
+'  pre-refresh snapshot if the unit existed in it (H is only computed
+'  fresh from F when the snapshot has no existing H value).
 '
 '  anchorDate drives the Pending (Manual) section rebuilt at the end
 '  of this sub (see BuildPendingSection) - any existing Pending block
 '  is removed up front so Confirmed's row-count changes below don't
 '  leave it stranded at the wrong offset.
 ' ----------------------------------------------------------------
-Private Sub DoRefreshMTM(ws As Worksheet, mtmDict As Object, mtmRecs() As MTMUnitRec, anchorDate As Date)
+Private Sub DoRefreshMTM(ws As Worksheet, mtmDict As Object, mtmRecs() As MTMUnitRec, anchorDate As Date, _
+                          allMarketRent As Object)
     ' Unwrap any live Table before the full-row delete below - deleting
     ' rows out from under a live ListObject down to zero data rows is
     ' an unsupported operation. .Unlist preserves all cell values/formatting.
@@ -482,6 +584,13 @@ Private Sub DoRefreshMTM(ws As Worksheet, mtmDict As Object, mtmRecs() As MTMUni
     For Each lo In ws.ListObjects
         lo.Unlist
     Next lo
+
+    ' Snapshot Pending's manually-maintained cols F/G/I (Expected Increase
+    ' Date/New MTM Rate/Notes, plus H/Market Rent as a fallback) by Unit#
+    ' before the block below is deleted - BuildPendingSection has no block
+    ' left to read from by the time it runs at the end of this sub, so
+    ' this has to happen first.
+    Dim pendSnapshot As Object: Set pendSnapshot = SnapshotPendingSection(ws)
 
     ' Removed up front - not a workaround for FindConfirmedLastRow (which
     ' correctly excludes Pending's rows either way), but because the
@@ -501,15 +610,20 @@ Private Sub DoRefreshMTM(ws As Worksheet, mtmDict As Object, mtmRecs() As MTMUni
     Dim tDate As Date: tDate = Now + 90
     Dim targetEnd As Date: targetEnd = DateSerial(Year(tDate), Month(tDate) + 1, 1) - 1
 
-    ' Snapshot pass: capture F/J/K for existing tracked units before
-    ' clearing anything. Skip blank rows.
+    ' Snapshot pass: capture F/H/J/K for existing tracked units before
+    ' clearing anything. Skip blank rows. H (Next Increase) is carried
+    ' forward as-is rather than recomputed, so a manually-corrected value
+    ' survives a refresh untouched - as a static value, though: .Value is
+    ' what's captured and written back, so if H held a formula (e.g.
+    ' =EDATE(...)) it becomes a plain date and will no longer recalculate
+    ' if F is edited afterward.
     Dim snapshot As Object: Set snapshot = CreateObject("Scripting.Dictionary")
     snapshot.CompareMode = 1
     Dim r As Long
     For r = DATA_START To lastRow
         Dim u As String: u = Trim(CStr(ws.Cells(r, 1).Value))
         If u = "" Then GoTo NextSnapRow
-        snapshot(u) = Array(ws.Cells(r, 6).Value, ws.Cells(r, 10).Value, ws.Cells(r, 11).Value)
+        snapshot(u) = Array(ws.Cells(r, 6).Value, ws.Cells(r, 8).Value, ws.Cells(r, 10).Value, ws.Cells(r, 11).Value)
 NextSnapRow:
     Next r
 
@@ -524,7 +638,7 @@ NextSnapRow:
     Dim writeRow As Long: writeRow = DATA_START
     Dim mtmCount As Long: mtmCount = 0
     For Each key In mtmDict.Keys
-        WriteMTMDataRow ws, writeRow, CStr(key), mtmRecs(CLng(mtmDict(key))), snapshot, targetEnd
+        WriteMTMDataRow ws, writeRow, CStr(key), mtmRecs(CLng(mtmDict(key))), snapshot, targetEnd, pendSnapshot
         writeRow = writeRow + 1
         mtmCount = mtmCount + 1
     Next key
@@ -568,7 +682,7 @@ NextSnapRow:
     ' Pending is rebuilt from scratch every refresh - the authoritative
     ' source of truth, so units no longer marked "MTM" on a windowed
     ' month sheet simply disappear from it.
-    BuildPendingSection ws, anchorDate
+    BuildPendingSection ws, anchorDate, pendSnapshot, allMarketRent, mtmDict
 End Sub
 
 ' ----------------------------------------------------------------
@@ -579,6 +693,11 @@ End Sub
 '  visually apparent). Called after DoRefreshMTM writes/sorts the
 '  rows, and again from SortMTMSheet after it re-sorts (since sorting
 '  reshuffles which rows land on odd/even positions).
+'
+'  Also re-stamps col H (Next Increase) with a soft highlight fill +
+'  bold font every time, since the row-banding fill above would
+'  otherwise overwrite it - these dates matter enough operationally to
+'  stand out from the rest of the row without being a jarring color.
 ' ----------------------------------------------------------------
 Private Sub ApplyRowBanding(ws As Worksheet, lastRow As Long)
     Dim r As Long
@@ -588,6 +707,10 @@ Private Sub ApplyRowBanding(ws As Worksheet, lastRow As Long)
         Else
             ws.Range(ws.Cells(r, 1), ws.Cells(r, COL_COUNT)).Interior.Color = RGB(242, 242, 242)
         End If
+        With ws.Cells(r, 8)
+            .Interior.Color = RGB(255, 242, 204)
+            .Font.Bold = True
+        End With
     Next r
 End Sub
 
@@ -605,11 +728,20 @@ End Function
 
 ' ----------------------------------------------------------------
 '  WriteMTMDataRow  -  writes one MTMUnitRec to row r, carrying
-'  forward F/J/K from the pre-refresh snapshot (see DoRefreshMTM)
-'  unconditionally if the unit existed in it.
+'  forward F/H/J/K from the pre-refresh snapshot (see DoRefreshMTM)
+'  unconditionally if the unit existed in it. H (Next Increase) is only
+'  computed from F (Last Increase) when the snapshot has no existing H
+'  value - otherwise the prior value is kept exactly as-is.
+'
+'  If the unit did NOT already exist as a Confirmed row (brand new this
+'  refresh - i.e. it's moving over from Pending), F/H instead fall back
+'  to pendSnapshot's Expected Increase Date for that unit, if any, so
+'  the CM's estimate carries into Last Increase rather than coming over
+'  blank (this unit is also being dropped from Pending this same
+'  refresh - see BuildPendingSection's mtmDict check).
 ' ----------------------------------------------------------------
 Private Sub WriteMTMDataRow(ws As Worksheet, r As Long, unit As String, rec As MTMUnitRec, _
-                             snapshot As Object, targetEnd As Date)
+                             snapshot As Object, targetEnd As Date, pendSnapshot As Object)
     ws.Cells(r, 1).Value = unit
     ws.Cells(r, 2).Value = rec.Name
     ws.Cells(r, 3).Value = rec.FloorPlanCode
@@ -621,13 +753,48 @@ Private Sub WriteMTMDataRow(ws As Worksheet, r As Long, unit As String, rec As M
     Dim snapArr As Variant
     If hasSnap Then snapArr = snapshot(unit)
 
-    Dim liVal As Variant
+    Dim liVal As Variant, niVal As Variant
     If hasSnap Then
         liVal = snapArr(0)
         If Not IsEmpty(liVal) And CStr(liVal) <> "" Then ws.Cells(r, 6).Value = liVal
-        If IsDate(liVal) Then ws.Cells(r, 8).Value = NextIncreaseDate(CDate(liVal))
-        Dim noteVal As Variant: noteVal = snapArr(1)
+        niVal = snapArr(1)
+        If IsDate(niVal) Then
+            ' Carry the existing Next Increase forward untouched.
+            ws.Cells(r, 8).Value = niVal
+        ElseIf IsDate(liVal) Then
+            ' No prior Next Increase on record for this unit - compute it.
+            ws.Cells(r, 8).Value = NextIncreaseDate(CDate(liVal))
+        End If
+        Dim noteVal As Variant: noteVal = snapArr(2)
         If Not IsEmpty(noteVal) And CStr(noteVal) <> "" Then ws.Cells(r, 10).Value = noteVal
+    ElseIf pendSnapshot.Exists(unit) Then
+        Dim pendArr As Variant: pendArr = pendSnapshot(unit)
+
+        ' Expected Increase Date IS the next-increase estimate itself, not
+        ' a Last Increase to project 12 months forward from - write it
+        ' straight to Next Increase (H). Last Increase (F) is left blank;
+        ' Pending never tracked it, so there's nothing real to seed it with.
+        Dim pendExpDate As Variant: pendExpDate = pendArr(0)
+        If IsDate(pendExpDate) Then ws.Cells(r, 8).Value = CDate(pendExpDate)
+
+        ' New MTM Rate (pendArr(1)) and Notes (pendArr(3)) have no
+        ' equivalent Confirmed column - fold them into Notes (J) so
+        ' they're not silently lost now that this unit's Pending row is
+        ' being dropped this same refresh (see BuildPendingSection's
+        ' mtmDict check). Never overwrites an existing manual note.
+        Dim pendRate As Variant: pendRate = pendArr(1)
+        Dim pendNotes As Variant: pendNotes = pendArr(3)
+        Dim carriedNote As String: carriedNote = ""
+        If Not IsEmpty(pendRate) And IsNumeric(pendRate) Then
+            carriedNote = "New MTM Rate (from Pending): " & Format(CDbl(pendRate), "$#,##0")
+        End If
+        If Not IsEmpty(pendNotes) And Trim(CStr(pendNotes)) <> "" Then
+            If carriedNote <> "" Then carriedNote = carriedNote & " - "
+            carriedNote = carriedNote & Trim(CStr(pendNotes))
+        End If
+        If carriedNote <> "" And Trim(CStr(ws.Cells(r, 10).Value)) = "" Then
+            ws.Cells(r, 10).Value = carriedNote
+        End If
     End If
 
     ' Auto-note for stale MTM units with no Last Increase on record yet -
@@ -639,7 +806,7 @@ Private Sub WriteMTMDataRow(ws As Worksheet, r As Long, unit As String, rec As M
     ws.Cells(r, 9).Value = MTMStatusLabel(ws.Cells(r, 8).Value, targetEnd)
 
     If hasSnap Then
-        ws.Cells(r, 11).Value = snapArr(2)
+        ws.Cells(r, 11).Value = snapArr(3)
     Else
         ws.Cells(r, 11).Value = False
     End If
@@ -755,10 +922,12 @@ Private Sub PlaceUnitInSection(mws As Worksheet, unitNum As String, grp As Strin
 End Sub
 
 ' ----------------------------------------------------------------
-'  NextIncreaseDate  -  Last Increase + 1 year + 1 day.
+'  NextIncreaseDate  -  Last Increase + exactly 12 months (matches the
+'  =EDATE(LastIncrease, 12) convention used for manual entries - no
+'  extra +1 day).
 ' ----------------------------------------------------------------
 Private Function NextIncreaseDate(lastIncrease As Date) As Date
-    NextIncreaseDate = DateAdd("yyyy", 1, lastIncrease) + 1
+    NextIncreaseDate = DateAdd("m", 12, lastIncrease)
 End Function
 
 ' ================================================================
@@ -858,9 +1027,10 @@ End Sub
 '  WritePendingSectionShell  -  writes the Pending divider row (grey/
 '  bold, matching the month-sheet section-bar convention detected by
 '  IsSectionHeader) and its column header row (Unit/Name/Floor Plan/
-'  Current Rent/Source Month), starting at divRow. Shared by
-'  BuildPendingSection (full rebuild) and AddPendingUnit (live,
-'  first-unit case) so the two creation paths never drift apart.
+'  Current Rent/Source Month/Expected Increase Date/New MTM Rate/Market
+'  Rent/Notes), starting at divRow. Shared by BuildPendingSection (full
+'  rebuild) and AddPendingUnit (live, first-unit case) so the two
+'  creation paths never drift apart.
 ' ----------------------------------------------------------------
 Private Sub WritePendingSectionShell(ws As Worksheet, divRow As Long)
     With ws.Range(ws.Cells(divRow, 1), ws.Cells(divRow, COL_COUNT))
@@ -877,12 +1047,13 @@ Private Sub WritePendingSectionShell(ws As Worksheet, divRow As Long)
 
     Dim hdrRow As Long: hdrRow = divRow + 1
     Dim pHeaders As Variant
-    pHeaders = Array("Unit", "Name", "Floor Plan", "Current Rent", "Source Month")
+    pHeaders = Array("Unit", "Name", "Floor Plan", "Current Rent", "Source Month", _
+                      "Expected Increase Date", "New MTM Rate", "Market Rent", "Notes")
     Dim i As Long
     For i = 0 To UBound(pHeaders)
         ws.Cells(hdrRow, i + 1).Value = pHeaders(i)
     Next i
-    With ws.Range(ws.Cells(hdrRow, 1), ws.Cells(hdrRow, 5))
+    With ws.Range(ws.Cells(hdrRow, 1), ws.Cells(hdrRow, 9))
         .Font.Bold = True
         .Font.Color = RGB(0, 0, 0)
         .WrapText = True
@@ -898,11 +1069,24 @@ End Sub
 
 ' ----------------------------------------------------------------
 '  WritePendingDataRow  -  writes one Pending row (cols A-E: Unit,
-'  Name, Floor Plan, Current Rent, Source Month). Sets font/alignment/
+'  Name, Floor Plan, Current Rent, Source Month, plus cols F-I: Expected
+'  Increase Date, New MTM Rate, Market Rent, Notes). Expected Increase
+'  Date/New MTM Rate/Notes are manually maintained by the CM while a
+'  unit is still Pending, so the values are sitting right there to copy
+'  across once the unit shows up as a real row in the Confirmed section.
+'  Market Rent is auto-imported from the Rent Roll (see BuildPendingSection
+'  / allMarketRent) rather than manually maintained. Sets font/alignment/
 '  number format explicitly rather than relying on FormatMTMSheet's
-'  blanket per-column formats, since Pending's column D (Current Rent)
-'  would otherwise inherit Confirmed's D column format (a date, for
-'  Lease Expiry).
+'  blanket per-column formats, since Pending's columns reuse the same
+'  physical columns as Confirmed's but with different meanings per row
+'  (e.g. Pending's D is Current Rent, not Confirmed's Lease Expiry).
+'
+'  expectedIncreaseDate/newMtmRate/marketRent/notes are optional -
+'  omitted (or blank) for a brand-new Pending row. BuildPendingSection
+'  passes expectedIncreaseDate/newMtmRate/notes back in from its
+'  pre-delete snapshot so those manually-entered values survive every
+'  refresh instead of being wiped on rebuild; marketRent is instead
+'  looked up fresh from the Rent Roll on every rebuild.
 '
 '  Source Month is written as a real Date (the 1st of the sourced
 '  month/year, parsed off sourceSheetName via modSheetUtils
@@ -913,7 +1097,9 @@ End Sub
 '  parsed (e.g. a non-standard sheet name), matching prior behavior.
 ' ----------------------------------------------------------------
 Private Sub WritePendingDataRow(ws As Worksheet, r As Long, unitNum As String, residentName As String, _
-                                  fpCode As String, currentRent As Variant, sourceSheetName As String)
+                                  fpCode As String, currentRent As Variant, sourceSheetName As String, _
+                                  Optional expectedIncreaseDate As Variant, Optional newMtmRate As Variant, _
+                                  Optional marketRent As Variant, Optional notes As Variant)
     ws.Cells(r, 1).Value = unitNum
     ws.Cells(r, 2).Value = residentName
     ws.Cells(r, 3).Value = fpCode
@@ -927,26 +1113,118 @@ Private Sub WritePendingDataRow(ws As Worksheet, r As Long, unitNum As String, r
         ws.Cells(r, 5).Value = sourceSheetName
     End If
 
-    With ws.Range(ws.Cells(r, 1), ws.Cells(r, 5))
+    ' An omitted Optional Variant is the Missing placeholder (subtype
+    ' vbError), not Empty - IsEmpty(Missing) is False and VBA's "And" does
+    ' not short-circuit, so CStr/CDate/CDbl on it would raise error 13.
+    ' IsMissing must be checked first, in its own If, for every one of these.
+    If Not IsMissing(expectedIncreaseDate) Then
+        If Not IsEmpty(expectedIncreaseDate) And IsDate(expectedIncreaseDate) Then ws.Cells(r, 6).Value = CDate(expectedIncreaseDate)
+    End If
+    If Not IsMissing(newMtmRate) Then
+        If Not IsEmpty(newMtmRate) And IsNumeric(newMtmRate) Then ws.Cells(r, 7).Value = CDbl(newMtmRate)
+    End If
+    If Not IsMissing(marketRent) Then
+        If Not IsEmpty(marketRent) And IsNumeric(marketRent) Then ws.Cells(r, 8).Value = CDbl(marketRent)
+    End If
+    If Not IsMissing(notes) Then
+        If Not IsEmpty(notes) And Trim(CStr(notes)) <> "" Then ws.Cells(r, 9).Value = CStr(notes)
+    End If
+
+    With ws.Range(ws.Cells(r, 1), ws.Cells(r, 9))
         .Font.Name = "Calibri"
         .Font.Size = 11
         .HorizontalAlignment = xlCenter
         .VerticalAlignment = xlCenter
     End With
     ws.Cells(r, 4).NumberFormat = "$#,##0"
+    ws.Cells(r, 6).NumberFormat = "mm/dd/yy;@"
+    ws.Cells(r, 7).NumberFormat = "$#,##0"
+    ws.Cells(r, 8).NumberFormat = "$#,##0"
+    With ws.Cells(r, 9)
+        .HorizontalAlignment = xlLeft
+        .WrapText = True
+    End With
+
+    ' Expected Increase Date - same soft highlight as Confirmed's Next
+    ' Increase (col H there), since it's the Pending-side counterpart and
+    ' just as important to notice at a glance.
+    With ws.Cells(r, 6)
+        .Interior.Color = RGB(255, 242, 204)
+        .Font.Bold = True
+    End With
 End Sub
+
+' ----------------------------------------------------------------
+'  SnapshotPendingSection  -  captures the Pending block's manually-
+'  maintained cols F,G,I (Expected Increase Date/New MTM Rate/Notes) by
+'  trimmed Unit# (col A) into a Dictionary, for BuildPendingSection to
+'  carry forward across its own rebuild. Col H (Market Rent) is also
+'  captured, purely as a fallback for BuildPendingSection to fall back
+'  on if a unit isn't found in the freshly-imported Rent Roll data (see
+'  BuildPendingSection/allMarketRent) - it's otherwise superseded by that
+'  fresh lookup. Must be called BEFORE the Pending block is deleted (see
+'  DoRefreshMTM) - returns an empty Dictionary if no Pending block exists
+'  yet.
+' ----------------------------------------------------------------
+Private Function SnapshotPendingSection(ws As Worksheet) As Object
+    Dim pendSnapshot As Object: Set pendSnapshot = CreateObject("Scripting.Dictionary")
+    pendSnapshot.CompareMode = 1
+    Dim sDivRow As Long, sHdrRow As Long, sFirst As Long, sLast As Long
+    If FindPendingRange(ws, sDivRow, sHdrRow, sFirst, sLast) Then
+        If sLast >= sFirst Then
+            Dim sr As Long
+            For sr = sFirst To sLast
+                Dim sUnit As String: sUnit = Trim(CStr(ws.Cells(sr, 1).Value))
+                If sUnit <> "" Then
+                    pendSnapshot(sUnit) = Array(ws.Cells(sr, 6).Value, ws.Cells(sr, 7).Value, _
+                                                 ws.Cells(sr, 8).Value, ws.Cells(sr, 9).Value)
+                End If
+            Next sr
+        End If
+    End If
+    Set SnapshotPendingSection = pendSnapshot
+End Function
 
 ' ----------------------------------------------------------------
 '  BuildPendingSection  -  authoritative rebuild, called at the end of
 '  DoRefreshMTM. Deletes any existing Pending block, then rescans
-'  modSheetUtils.PendingWindowSheets(anchorDate) oldest to newest (so
-'  the freshest "MTM" declaration for a given unit wins if it appears
-'  in more than one window sheet), and writes one row per distinct
-'  unit directly under Confirmed's new end. Units no longer marked
-'  "MTM" on a windowed sheet simply aren't written back - Pending is
+'  modSheetUtils.PendingWindowSheets(anchorDate) oldest to newest, so a
+'  unit's LATEST status among the sheets it appears on in the window
+'  always wins - if it's "MTM" there it's (re)added/refreshed, if it's
+'  anything else (renewed, blank, etc.) any earlier "MTM" entry for that
+'  same unit from an older sheet in the window is dropped. This is what
+'  keeps Pending from re-importing a unit indefinitely just because it
+'  was MTM 1-2 months ago and happens to still fall inside the 3-month
+'  window - only its most current status controls. A unit already present
+'  in mtmDict (a real row in the Confirmed section this refresh, from the
+'  Yardi Rent Roll import) is likewise excluded/dropped from Pending even
+'  if a window month sheet still shows "MTM" for it - nothing ever clears
+'  col A on the month sheet once a unit goes Confirmed, so without this a
+'  unit the CM already deleted from Pending (per the reminder note once
+'  it shows up above) would just reappear on the next refresh. Writes one
+'  row per distinct unit directly under Confirmed's new end. Pending is
 '  fully rebuilt from scratch every time.
+'
+'  Cols F/G/I (Expected Increase Date/New MTM Rate/Notes) are manually
+'  maintained by the CM and have no source on the month sheets, so the
+'  caller (DoRefreshMTM) must snapshot them via SnapshotPendingSection
+'  BEFORE its own early DeletePendingBlock call runs - by the time this
+'  sub's own DeletePendingBlock call below would run, the block is
+'  already gone, so it cannot be the one to capture them. pendSnapshot
+'  is looked up by Unit and passed back into WritePendingDataRow for any
+'  unit that's still present after the rescan.
+'
+'  Col H (Market Rent) is instead looked up fresh from allMarketRent - a
+'  Dictionary of every unit's Market Rent from the same Rent Roll import
+'  that fed the Confirmed section this refresh (see RefreshMTMSheet /
+'  modReaders.ReadYardiMTM) - keyed by Unit#, regardless of MTM status,
+'  so a Pending unit (not yet MTM in Yardi) still resolves. Falls back to
+'  the pre-rebuild snapshot's old Market Rent if the unit isn't found in
+'  the Rent Roll this time (e.g. a name/unit mismatch), rather than going
+'  blank.
 ' ----------------------------------------------------------------
-Private Sub BuildPendingSection(ws As Worksheet, anchorDate As Date)
+Private Sub BuildPendingSection(ws As Worksheet, anchorDate As Date, pendSnapshot As Object, _
+                                  allMarketRent As Object, mtmDict As Object)
     DeletePendingBlock ws
 
     Dim divRow As Long: divRow = FindConfirmedLastRow(ws) + 2
@@ -967,13 +1245,41 @@ Private Sub BuildPendingSection(ws As Worksheet, anchorDate As Date)
                 If IsSectionHeader(mws, r) Then GoTo NextScanRow
                 Dim dValChk As String: dValChk = Trim(CStr(mws.Cells(r, 4).Value))
                 If InStr(1, dValChk, "Total", vbTextCompare) > 0 Then Exit For
-                If LCase(Trim(CStr(mws.Cells(r, 1).Value))) <> "mtm" Then GoTo NextScanRow
 
                 Dim uNum As String: uNum = Trim(CStr(mws.Cells(r, 2).Value))
                 If uNum = "" Then GoTo NextScanRow
 
-                pendDict(uNum) = Array(uNum, Trim(CStr(mws.Cells(r, 3).Value)), _
-                                        Trim(CStr(mws.Cells(r, 4).Value)), mws.Cells(r, 5).Value, shNm)
+                ' Window sheets are scanned oldest to newest, so whichever
+                ' status this unit shows on the most recent sheet it
+                ' appears on always wins here. If that status is an
+                ' EXPLICIT non-"MTM" value (Renewed/NTV/etc. - the
+                ' resident renewed / situation resolved since an older
+                ' sheet in the window flagged it), drop it - don't keep
+                ' re-importing a unit just because it was MTM 1-2 months
+                ' ago. A blank status is NOT treated as a resolution -
+                ' PlaceUnitInSection can copy a unit onto a later window
+                ' sheet without ever setting col A, and a blank there just
+                ' means that sheet's review hasn't happened yet, not that
+                ' the unit stopped being MTM.
+                Dim statusVal As String: statusVal = Trim(CStr(mws.Cells(r, 1).Value))
+                If LCase(statusVal) = "mtm" Then
+                    If mtmDict.Exists(uNum) Then
+                        ' Already a real row in the Confirmed section this
+                        ' refresh (picked up by the Yardi Rent Roll import
+                        ' above) - don't also re-add/keep it in Pending.
+                        ' Nothing clears col A on the month sheet once a
+                        ' unit goes Confirmed, so without this check a unit
+                        ' the CM already deleted from Pending (per the
+                        ' reminder note) would just come right back on the
+                        ' next refresh.
+                        If pendDict.Exists(uNum) Then pendDict.Remove uNum
+                    Else
+                        pendDict(uNum) = Array(uNum, Trim(CStr(mws.Cells(r, 3).Value)), _
+                                                Trim(CStr(mws.Cells(r, 4).Value)), mws.Cells(r, 5).Value, shNm)
+                    End If
+                ElseIf statusVal <> "" And pendDict.Exists(uNum) Then
+                    pendDict.Remove uNum
+                End If
 NextScanRow:
             Next r
         End If
@@ -983,7 +1289,32 @@ NextScanRow:
     Dim key As Variant
     For Each key In pendDict.Keys
         Dim rowArr As Variant: rowArr = pendDict(key)
-        WritePendingDataRow ws, writeR, CStr(rowArr(0)), CStr(rowArr(1)), CStr(rowArr(2)), rowArr(3), CStr(rowArr(4))
+        Dim uKey As String: uKey = CStr(rowArr(0))
+
+        Dim hasSnapPend As Boolean: hasSnapPend = pendSnapshot.Exists(uKey)
+        Dim psArr As Variant
+        If hasSnapPend Then psArr = pendSnapshot(uKey)
+
+        ' Market Rent: fresh Rent Roll value wins; fall back to the
+        ' pre-rebuild snapshot's old value if this unit isn't in the Rent
+        ' Roll this time around. mrToUse is Dim'd once for the whole loop
+        ' (VBA hoists Dim to the top of the procedure) so it must be reset
+        ' every iteration - otherwise a unit with neither source would
+        ' silently inherit the previous unit's Market Rent.
+        Dim mrToUse As Variant: mrToUse = Empty
+        If allMarketRent.Exists(uKey) Then
+            mrToUse = allMarketRent(uKey)
+        ElseIf hasSnapPend Then
+            mrToUse = psArr(2)
+        End If
+
+        If hasSnapPend Then
+            WritePendingDataRow ws, writeR, uKey, CStr(rowArr(1)), CStr(rowArr(2)), rowArr(3), CStr(rowArr(4)), _
+                                 psArr(0), psArr(1), mrToUse, psArr(3)
+        Else
+            WritePendingDataRow ws, writeR, uKey, CStr(rowArr(1)), CStr(rowArr(2)), rowArr(3), CStr(rowArr(4)), _
+                                 , , mrToUse
+        End If
         writeR = writeR + 1
     Next key
 End Sub
@@ -1061,9 +1392,15 @@ End Sub
 '  against any existing Pending block, and either appends one row or
 '  (if no Pending block exists yet at all) creates the divider+header
 '  +this one row.
+'
+'  mtmRate is optional - the month sheet's own col S ("MTM Rate"), passed
+'  straight through to WritePendingDataRow's New MTM Rate column (G) if
+'  the caller has it. Omitted (still Missing all the way through) is
+'  fine - see the IsMissing guards in WritePendingDataRow.
 ' ----------------------------------------------------------------
 Public Sub AddPendingUnit(unitNum As String, residentName As String, fpCode As String, _
-                           currentRent As Variant, sourceSheetName As String)
+                           currentRent As Variant, sourceSheetName As String, _
+                           Optional mtmRate As Variant)
     MigrateMTMSheetName
     If Not SheetExists(MTM_SHEET) Then
         If CreateFreshMTMSheet(True) Is Nothing Then Exit Sub
@@ -1085,12 +1422,14 @@ Public Sub AddPendingUnit(unitNum As String, residentName As String, fpCode As S
 
         Dim newRow As Long: newRow = dFirst
         If dLast >= dFirst Then newRow = dLast + 1
-        WritePendingDataRow ws, newRow, trimmedUnit, residentName, fpCode, currentRent, sourceSheetName
+        WritePendingDataRow ws, newRow, trimmedUnit, residentName, fpCode, currentRent, sourceSheetName, _
+                             , mtmRate
     Else
         ' No Pending block exists yet - create divider + header + this
         ' one row, directly under Confirmed's current end.
         Dim newDivRow As Long: newDivRow = FindConfirmedLastRow(ws) + 2
         WritePendingSectionShell ws, newDivRow
-        WritePendingDataRow ws, newDivRow + 2, trimmedUnit, residentName, fpCode, currentRent, sourceSheetName
+        WritePendingDataRow ws, newDivRow + 2, trimmedUnit, residentName, fpCode, currentRent, sourceSheetName, _
+                             , mtmRate
     End If
 End Sub
