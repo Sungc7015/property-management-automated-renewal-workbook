@@ -373,13 +373,35 @@ These 4 buttons are wired onto the `MTM` sheet automatically — no manual setup
 | Clear Selection MTM | `modMTM.ClearSelectionMTM` | Uncheck every Import checkbox on the tracker |
 | Sort MTM Tracker | `modMTM.SortMTMSheet` | Manually re-sort by Next Increase (col H) on demand — also recalculates Next Increase/Status from any manual Last Increase edits before sorting — without running a full refresh |
 
+### Pending (Manual) Section
+
+Below the Confirmed (Rent Roll) block described above, the `MTM` sheet has a second block labeled **Pending (Manual)**. It exists to surface a resident's *declared* intent to go month-to-month right away, instead of waiting for the next Yardi Rent Roll refresh to confirm it — which can be weeks or months later.
+
+**How to trigger it:** on the current month sheet, set a unit's **Renewal Status** dropdown (col A) to `MTM`. The unit appears in the Pending section immediately — no need to click **Refresh MTM Tracker** first. This is a live trigger (`modDynamic.HandlePendingStatusChange`); every other Renewal Status value (`Renewed`, `NTV`, `Pending`, blank) is ignored.
+
+**The rolling 3-month window:** Pending only ever watches the current month sheet and the prior two months' sheets — a rolling 3-month window. The window is anchored to whichever month/year you most recently ran the monthly import for, and it automatically advances every time you run **Import Monthly Data** again. This means old years' month sheets (which are never archived or deleted) can never resurface a stale "MTM" flag from long ago — only the 3 most recent months are ever in scope.
+
+**A unit can appear in both Confirmed and Pending at the same time** — that's expected. It simply means the Yardi Rent Roll has now caught up to what was manually declared on the month sheet.
+
+**Pending is rebuilt from scratch on every refresh.** Clicking **Refresh MTM Tracker** deletes the entire existing Pending block and rescans the 3 window sheets from the current state of column A. So if you later change a unit's Renewal Status away from `MTM` (e.g., to `Renewed`), it will drop out of Pending the next time you run **Refresh MTM Tracker** — it does not disappear live the moment you change the dropdown.
+
+**Pending's columns** are a shorter set than Confirmed's — no Lease Expiry, Market Rent, Last/Next Increase, Status, Notes, or Import checkbox, since these rows aren't imported anywhere:
+
+| Col | Field | Notes |
+|---|---|---|
+| A | Unit | |
+| B | Name | |
+| C | Floor Plan | Yardi unit type code |
+| D | Current Rent | |
+| E | Source Month | The month sheet the `MTM` flag was read from (e.g., `Jul-26`) |
+
 ---
 
 ## Column Reference (Month Sheets)
 
 | Col | Letter | Field | Source |
 |---|---|---|---|
-| 1 | A | **Renewal Status** | **Manual entry** — dropdown: `Renewed`, `MTM`, `NTV` (Notice to Vacate), `Pending`. Drives row color (green = Renewed, pink = NTV, blue = MTM) and all Overview metrics (renewal count, signed revenue, capture ratio). This is the primary field you fill each month. *Note: the automated [MTM Tracker Workflow](#mtm-tracker-workflow) never writes to this column — it stays purely manual. The automated MTM signal is the highlighted tag in column T instead, to avoid confusing it with the manual `MTM` dropdown value here.* |
+| 1 | A | **Renewal Status** | **Manual entry** — dropdown: `Renewed`, `MTM`, `NTV` (Notice to Vacate), `Pending`. Drives row color (green = Renewed, pink = NTV, blue = MTM) and all Overview metrics (renewal count, signed revenue, capture ratio). This is the primary field you fill each month. Setting it to `MTM` on a month sheet within the rolling 3-month window also immediately feeds the MTM tracker's [Pending (Manual) Section](#pending-manual-section). *Note: the automated [MTM Tracker Workflow](#mtm-tracker-workflow) never writes to this column — it stays purely manual. The automated MTM signal is the highlighted tag in column T instead, to avoid confusing it with the manual `MTM` dropdown value here.* |
 | 2 | B | Apt # (Unit Number) | Yardi Rent Roll |
 | 3 | C | Resident Name | Yardi Rent Roll |
 | 4 | D | Floor Plan (Yardi Code) | Yardi Rent Roll |
