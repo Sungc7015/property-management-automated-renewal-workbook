@@ -1,5 +1,17 @@
 # Session Log
 
+## [2026-07-23] Two Keep/Lock bug fixes found in Excel testing — v2.10.1
+
+Same-day follow-up to v2.10.0. User's real-Excel test of the Keep/Lock feature surfaced two issues:
+
+1. **Current Rent lost on locked/out-of-window Pending rows.** Diagnosed via a read-only Explore pass tracing `BuildPendingSection`'s resurrection path: Current Rent had no live refresh source at all, unlike Market Rent (which already looks itself up fresh from `allMarketRent` each refresh, falling back to the carried snapshot only if the unit isn't found). Current Rent was a pure one-shot carry-forward with nothing to ever correct an already-blank value. Fixed by exposing the `ActualRent` field `ReadYardiMTM` already computes per unit (part of the existing `MTMUnitRec` type) via a new `allActualRent` dictionary, mirroring `allMarketRent`'s exact pattern, threaded through `RefreshMTMSheet` -> `DoRefreshMTM` -> `BuildPendingSection`. Opus-tier audit confirmed correct threading, no call-site breakage, and no regression to the in-window case (which now also benefits from the same freshness).
+
+2. **Source Month showing a raw date serial number instead of "Mar-26" on some Pending rows.** Root cause found by direct code inspection (after two Explore diagnostic passes narrowed but didn't fully pin it down): `WritePendingDataRow` applied Source Month's `NumberFormat` only inside the `ParseMonthSheet` success branch, unlike every other formatted column in the same sub (Current Rent, Expected Increase Date, New MTM Rate, Market Rent), which all format unconditionally regardless of what happened above. Fixed by moving the format assignment to the same unconditional block — a minimal, safe change since the format string already has an explicit text-fallback section.
+
+Both fixes tested and confirmed working in real Excel before this push. Also committed `MTM_TAB_GUIDE.md`, a new PM-facing (non-developer) quick reference for the MTM tab covering do's/don'ts, a pre-refresh checklist, and a dedicated Keep/Lock section — written by a research pass that read the actual current code (not assumed behavior) and cross-checked against README/SESSION_LOG history; a stale README line (claiming Sort recalculates Next Increase from Last Increase edits) was caught in the process and the guide follows the verified actual code instead.
+
+**Artifact:** `modMTM.bas`, `modReaders.bas`, `modConfig.bas`, `README.md`, `MTM_TAB_GUIDE.md` — commits `a17930d` (fixes), version bump + README docs this same push, pushed to `origin/master`.
+
 ## [2026-07-23] Pending Keep/Lock checkbox — v2.10.0
 
 User reported that a unit manually flagged "MTM" on the current month's sheet, while still sitting in the Pending (Manual) section, could get silently removed on refresh even though it hadn't resolved and hadn't yet appeared in the Confirmed section. Diagnosed via a read-only Explore pass: `MTM.AnchorDate` (the anchor driving Pending's 3-month scan window) only advances when a month's formal Rent Roll import runs (`modImport.ImportMonthlyData`), not on the real calendar month — so a unit flagged MTM ahead of that month's import is invisible to the window scan and its older qualifying flag can silently age out.
