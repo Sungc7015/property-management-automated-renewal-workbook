@@ -53,7 +53,11 @@ Option Explicit
 '  once it becomes a real Confirmed row - Market Rent is auto-imported
 '  from the Rent Roll each refresh (see BuildPendingSection), the other
 '  3 are manually maintained by the CM and carried forward across
-'  rebuilds (see SnapshotPendingSection).
+'  rebuilds (see SnapshotPendingSection). Col J is a Keep/Lock checkbox -
+'  if checked, BuildPendingSection's resurrection pass re-adds that unit
+'  even if it falls outside the 3-month scan window and even after it
+'  graduates to Confirmed; only explicit resolution on a later sheet
+'  removes it.
 ' ================================================================
 
 Private Const MTM_SHEET     As String = "MTM"
@@ -65,6 +69,8 @@ Private Const CB_PREFIX     As String = "mtmChk_"
 Private Const PENDING_SECTION_LABEL As String = "Pending (Manual)"
 Private Const MTM_ANCHOR_NAME       As String = "MTM.AnchorDate"
 Private Const MTM_ANCHOR_CELL       As String = "M1"   ' free cell - buttons live at M2+, title merge ends at K1
+Private Const PENDING_COL_COUNT     As Long   = 10
+Private Const CB_PEND_PREFIX        As String = "mtmPendChk_"
 
 ' ----------------------------------------------------------------
 '  MigrateMTMSheetName  -  self-healing rename: if a workbook still
@@ -366,6 +372,8 @@ Private Sub DedupPendingSection(ws As Worksheet)
     For i = dupRows.Count To 1 Step -1
         ws.Range(ws.Cells(dupRows(i), 1), ws.Cells(dupRows(i), COL_COUNT)).Delete Shift:=xlUp
     Next i
+
+    SyncPendingCheckboxes ws
 End Sub
 
 ' ----------------------------------------------------------------
@@ -463,7 +471,7 @@ Private Sub FormatMTMSheet(ws As Worksheet, cfg As PropConfig)
     ' grow or shrink on refresh.
     With ws.Range(ws.Cells(4, "M"), ws.Cells(9, "Q"))
         .Merge
-        .Value = "Reminder: units in the ""Pending (Manual)"" section below are not yet MTM on the Yardi Rent Roll. Once a unit shows up as its own row in the tracker above - usually within the next couple of months, after a Refresh MTM Tracker picks it up from the Rent Roll - it is automatically removed from Pending (Manual) on that same refresh, carrying over its Expected Increase Date/New MTM Rate/Notes. No manual cleanup needed."
+        .Value = "Reminder: units in the ""Pending (Manual)"" section below are not yet MTM on the Yardi Rent Roll. Once a unit shows up as its own row in the tracker above - usually within the next couple of months, after a Refresh MTM Tracker picks it up from the Rent Roll - it is automatically removed from Pending (Manual) on that same refresh, carrying over its Expected Increase Date/New MTM Rate/Notes. No manual cleanup needed. Check a row's Keep/Lock box to keep it in Pending even if it falls outside the 3-month scan window or graduates to Confirmed - only explicit resolution (e.g. marked Renewed) on a later sheet removes it."
         .Font.Name = "Calibri"
         .Font.Italic = True
         .Font.Size = 10
@@ -1048,12 +1056,12 @@ Private Sub WritePendingSectionShell(ws As Worksheet, divRow As Long)
     Dim hdrRow As Long: hdrRow = divRow + 1
     Dim pHeaders As Variant
     pHeaders = Array("Unit", "Name", "Floor Plan", "Current Rent", "Source Month", _
-                      "Expected Increase Date", "New MTM Rate", "Market Rent", "Notes")
+                      "Expected Increase Date", "New MTM Rate", "Market Rent", "Notes", "Keep/Lock")
     Dim i As Long
     For i = 0 To UBound(pHeaders)
         ws.Cells(hdrRow, i + 1).Value = pHeaders(i)
     Next i
-    With ws.Range(ws.Cells(hdrRow, 1), ws.Cells(hdrRow, 9))
+    With ws.Range(ws.Cells(hdrRow, 1), ws.Cells(hdrRow, PENDING_COL_COUNT))
         .Font.Bold = True
         .Font.Color = RGB(0, 0, 0)
         .WrapText = True
@@ -1099,7 +1107,8 @@ End Sub
 Private Sub WritePendingDataRow(ws As Worksheet, r As Long, unitNum As String, residentName As String, _
                                   fpCode As String, currentRent As Variant, sourceSheetName As String, _
                                   Optional expectedIncreaseDate As Variant, Optional newMtmRate As Variant, _
-                                  Optional marketRent As Variant, Optional notes As Variant)
+                                  Optional marketRent As Variant, Optional notes As Variant, _
+                                  Optional keepLock As Boolean = False)
     ws.Cells(r, 1).Value = unitNum
     ws.Cells(r, 2).Value = residentName
     ws.Cells(r, 3).Value = fpCode
@@ -1130,7 +1139,7 @@ Private Sub WritePendingDataRow(ws As Worksheet, r As Long, unitNum As String, r
         If Not IsEmpty(notes) And Trim(CStr(notes)) <> "" Then ws.Cells(r, 9).Value = CStr(notes)
     End If
 
-    With ws.Range(ws.Cells(r, 1), ws.Cells(r, 9))
+    With ws.Range(ws.Cells(r, 1), ws.Cells(r, PENDING_COL_COUNT))
         .Font.Name = "Calibri"
         .Font.Size = 11
         .HorizontalAlignment = xlCenter
@@ -1152,6 +1161,11 @@ Private Sub WritePendingDataRow(ws As Worksheet, r As Long, unitNum As String, r
         .Interior.Color = RGB(255, 242, 204)
         .Font.Bold = True
     End With
+
+    ' Keep/Lock checkbox cell - hide raw TRUE/FALSE, matching how
+    ' Confirmed's col K Import checkbox cell is hidden.
+    ws.Cells(r, 10).Value = keepLock
+    ws.Cells(r, 10).NumberFormat = ";;;"
 End Sub
 
 ' ----------------------------------------------------------------
@@ -1162,9 +1176,12 @@ End Sub
 '  captured, purely as a fallback for BuildPendingSection to fall back
 '  on if a unit isn't found in the freshly-imported Rent Roll data (see
 '  BuildPendingSection/allMarketRent) - it's otherwise superseded by that
-'  fresh lookup. Must be called BEFORE the Pending block is deleted (see
-'  DoRefreshMTM) - returns an empty Dictionary if no Pending block exists
-'  yet.
+'  fresh lookup. Also captures col J (Keep/Lock, index 4) plus Name/Floor
+'  Plan/Current Rent/Source Month (indices 5-8), so BuildPendingSection's
+'  resurrection pass can re-add a locked unit that fell out of the
+'  window scan using the same values it last had. Must be called BEFORE
+'  the Pending block is deleted (see DoRefreshMTM) - returns an empty
+'  Dictionary if no Pending block exists yet.
 ' ----------------------------------------------------------------
 Private Function SnapshotPendingSection(ws As Worksheet) As Object
     Dim pendSnapshot As Object: Set pendSnapshot = CreateObject("Scripting.Dictionary")
@@ -1177,13 +1194,64 @@ Private Function SnapshotPendingSection(ws As Worksheet) As Object
                 Dim sUnit As String: sUnit = Trim(CStr(ws.Cells(sr, 1).Value))
                 If sUnit <> "" Then
                     pendSnapshot(sUnit) = Array(ws.Cells(sr, 6).Value, ws.Cells(sr, 7).Value, _
-                                                 ws.Cells(sr, 8).Value, ws.Cells(sr, 9).Value)
+                                                 ws.Cells(sr, 8).Value, ws.Cells(sr, 9).Value, _
+                                                 ws.Cells(sr, 10).Value, ws.Cells(sr, 2).Value, _
+                                                 ws.Cells(sr, 3).Value, ws.Cells(sr, 4).Value, _
+                                                 ws.Cells(sr, 5).Value)
                 End If
             Next sr
         End If
     End If
     Set SnapshotPendingSection = pendSnapshot
 End Function
+
+' ----------------------------------------------------------------
+'  SyncPendingCheckboxes  -  deletes all mtmPendChk_* Form Control
+'  checkboxes and recreates one for every Pending data row with a
+'  non-blank unit number in col A, linked to col J (Keep/Lock). Mirrors
+'  SyncCheckboxes above but scoped to CB_PEND_PREFIX/the Pending block,
+'  so the two sync passes never collide. Called after BuildPendingSection,
+'  AddPendingUnit, and DedupPendingSection so checkboxes stay aligned
+'  with their rows.
+' ----------------------------------------------------------------
+Private Sub SyncPendingCheckboxes(ws As Worksheet)
+    ' Collect names first (can't delete while iterating the collection)
+    Dim names() As String
+    Dim cnt As Long: cnt = 0
+    Dim cb As CheckBox
+    For Each cb In ws.CheckBoxes
+        If Left(cb.Name, Len(CB_PEND_PREFIX)) = CB_PEND_PREFIX Then
+            ReDim Preserve names(cnt)
+            names(cnt) = cb.Name
+            cnt = cnt + 1
+        End If
+    Next cb
+    Dim i As Long
+    For i = 0 To cnt - 1
+        ' Tolerate a checkbox that was already deleted or renamed out from
+        ' under us between the collect pass above and this delete call.
+        On Error Resume Next
+        ws.CheckBoxes(names(i)).Delete
+        On Error GoTo 0
+    Next i
+
+    Dim divRow As Long, hdrRow As Long, dFirst As Long, dLast As Long
+    If Not FindPendingRange(ws, divRow, hdrRow, dFirst, dLast) Then Exit Sub
+    If dLast < dFirst Then Exit Sub
+
+    Dim r As Long
+    For r = dFirst To dLast
+        If Trim(CStr(ws.Cells(r, 1).Value)) = "" Then GoTo NextPendCB
+        Dim cell As Range: Set cell = ws.Cells(r, PENDING_COL_COUNT)
+        Dim newCB As CheckBox
+        Set newCB = ws.CheckBoxes.Add(cell.Left + 1, cell.Top + 1, _
+                                      cell.Width - 2, cell.Height - 2)
+        newCB.Caption = ""
+        newCB.Name = CB_PEND_PREFIX & r
+        newCB.LinkedCell = cell.Address(External:=False)
+NextPendCB:
+    Next r
+End Sub
 
 ' ----------------------------------------------------------------
 '  BuildPendingSection  -  authoritative rebuild, called at the end of
@@ -1222,6 +1290,14 @@ End Function
 '  the pre-rebuild snapshot's old Market Rent if the unit isn't found in
 '  the Rent Roll this time (e.g. a name/unit mismatch), rather than going
 '  blank.
+'
+'  A unit whose only windowed sheet fell out of the 3-month scan (the
+'  anchor only advances on a formal monthly import, so a unit freshly
+'  marked "MTM" this month before that month's import runs can otherwise
+'  be silently dropped here) is re-added by the resurrection pass below
+'  if its Keep/Lock box (pendSnapshot index 4) was checked, even if it has
+'  since graduated to Confirmed (mtmDict) - only explicit resolution (see
+'  latestStatus) removes it.
 ' ----------------------------------------------------------------
 Private Sub BuildPendingSection(ws As Worksheet, anchorDate As Date, pendSnapshot As Object, _
                                   allMarketRent As Object, mtmDict As Object)
@@ -1232,6 +1308,14 @@ Private Sub BuildPendingSection(ws As Worksheet, anchorDate As Date, pendSnapsho
 
     Dim pendDict As Object: Set pendDict = CreateObject("Scripting.Dictionary")
     pendDict.CompareMode = 1
+
+    ' Tracks each unit's latest non-blank status across the window scan
+    ' below (oldest to newest sheet order, so the last write for a given
+    ' unit is always its most current status) - used by the resurrection
+    ' pass after the scan loop to tell a still-pending unit apart from one
+    ' that was explicitly resolved on a later sheet still inside the window.
+    Dim latestStatus As Object: Set latestStatus = CreateObject("Scripting.Dictionary")
+    latestStatus.CompareMode = 1
 
     Dim windowNames As Variant: windowNames = modSheetUtils.PendingWindowSheets(anchorDate)
     Dim wi As Long
@@ -1262,8 +1346,22 @@ Private Sub BuildPendingSection(ws As Worksheet, anchorDate As Date, pendSnapsho
                 ' means that sheet's review hasn't happened yet, not that
                 ' the unit stopped being MTM.
                 Dim statusVal As String: statusVal = Trim(CStr(mws.Cells(r, 1).Value))
+                If statusVal <> "" Then latestStatus(uNum) = statusVal
+
+                ' Keep/Lock override: a unit the CM has locked stays visible
+                ' in Pending even after it graduates to a real Confirmed row,
+                ' so the mtmDict exclusion just below only applies to units
+                ' that aren't locked. Units with no prior snapshot entry are
+                ' unlocked/new, so the exclusion still applies to them as
+                ' before.
+                Dim isUnitLocked As Boolean: isUnitLocked = False
+                If pendSnapshot.Exists(uNum) Then
+                    Dim snapLockArr As Variant: snapLockArr = pendSnapshot(uNum)
+                    If Not IsEmpty(snapLockArr(4)) Then isUnitLocked = (snapLockArr(4) = True)
+                End If
+
                 If LCase(statusVal) = "mtm" Then
-                    If mtmDict.Exists(uNum) Then
+                    If mtmDict.Exists(uNum) And Not isUnitLocked Then
                         ' Already a real row in the Confirmed section this
                         ' refresh (picked up by the Yardi Rent Roll import
                         ' above) - don't also re-add/keep it in Pending.
@@ -1284,6 +1382,41 @@ NextScanRow:
             Next r
         End If
     Next wi
+
+    ' Resurrection pass - a unit whose windowed sheet fell out of the
+    ' 3-month scan above (the anchor only advances on a formal monthly
+    ' import, so a unit freshly marked "MTM" this month before that
+    ' month's import runs can otherwise get silently dropped here even
+    ' though it's still legitimately pending) is re-added if the CM had
+    ' checked its Keep/Lock box, unless it was explicitly resolved (a
+    ' later, non-"MTM" status - see latestStatus above). Keep/Lock
+    ' overrides Confirmed-graduation here too, so a locked unit stays in
+    ' Pending even if it has since graduated to a real Confirmed row
+    ' (mtmDict) - explicit resolution is the only thing that removes it.
+    Dim snapKey As Variant
+    For Each snapKey In pendSnapshot.Keys
+        Dim snapUnit As String: snapUnit = CStr(snapKey)
+        If pendDict.Exists(snapUnit) Then GoTo NextSnapKey
+
+        Dim snapRowArr As Variant: snapRowArr = pendSnapshot(snapUnit)
+        If IsEmpty(snapRowArr(4)) Then GoTo NextSnapKey
+        If snapRowArr(4) <> True Then GoTo NextSnapKey
+
+        If latestStatus.Exists(snapUnit) Then
+            If LCase(latestStatus(snapUnit)) <> "mtm" Then GoTo NextSnapKey
+        End If
+
+        Dim srcMonthStr As String
+        Dim snapSrcDate As Variant: snapSrcDate = snapRowArr(8)
+        If IsDate(snapSrcDate) Then
+            srcMonthStr = MonthSheetName(Month(CDate(snapSrcDate)), Year(CDate(snapSrcDate)))
+        Else
+            srcMonthStr = CStr(snapSrcDate)
+        End If
+
+        pendDict(snapUnit) = Array(snapUnit, CStr(snapRowArr(5)), CStr(snapRowArr(6)), snapRowArr(7), srcMonthStr)
+NextSnapKey:
+    Next snapKey
 
     Dim writeR As Long: writeR = divRow + 2
     Dim key As Variant
@@ -1308,15 +1441,25 @@ NextScanRow:
             mrToUse = psArr(2)
         End If
 
+        ' Keep/Lock: carried forward from the pre-rebuild snapshot if this
+        ' unit had one, otherwise defaults to unchecked (also reset every
+        ' iteration for the same reason as mrToUse above).
+        Dim keepLockToUse As Boolean: keepLockToUse = False
+        If hasSnapPend Then
+            If Not IsEmpty(psArr(4)) Then keepLockToUse = (psArr(4) = True)
+        End If
+
         If hasSnapPend Then
             WritePendingDataRow ws, writeR, uKey, CStr(rowArr(1)), CStr(rowArr(2)), rowArr(3), CStr(rowArr(4)), _
-                                 psArr(0), psArr(1), mrToUse, psArr(3)
+                                 psArr(0), psArr(1), mrToUse, psArr(3), keepLockToUse
         Else
             WritePendingDataRow ws, writeR, uKey, CStr(rowArr(1)), CStr(rowArr(2)), rowArr(3), CStr(rowArr(4)), _
-                                 , , mrToUse
+                                 , , mrToUse, , keepLockToUse
         End If
         writeR = writeR + 1
     Next key
+
+    SyncPendingCheckboxes ws
 End Sub
 
 ' ----------------------------------------------------------------
@@ -1424,6 +1567,7 @@ Public Sub AddPendingUnit(unitNum As String, residentName As String, fpCode As S
         If dLast >= dFirst Then newRow = dLast + 1
         WritePendingDataRow ws, newRow, trimmedUnit, residentName, fpCode, currentRent, sourceSheetName, _
                              , mtmRate
+        SyncPendingCheckboxes ws
     Else
         ' No Pending block exists yet - create divider + header + this
         ' one row, directly under Confirmed's current end.
@@ -1431,5 +1575,6 @@ Public Sub AddPendingUnit(unitNum As String, residentName As String, fpCode As S
         WritePendingSectionShell ws, newDivRow
         WritePendingDataRow ws, newDivRow + 2, trimmedUnit, residentName, fpCode, currentRent, sourceSheetName, _
                              , mtmRate
+        SyncPendingCheckboxes ws
     End If
 End Sub
