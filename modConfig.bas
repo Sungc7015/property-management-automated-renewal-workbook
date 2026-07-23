@@ -8,10 +8,10 @@ Option Explicit
 '  IMPORT ORDER: import this module FIRST. All other modules use
 '  PropConfig and the public constants declared here.
 '
-'  Version 2.8.0
+'  Version 2.10.0
 ' ================================================================
 
-Public Const VER As String = "2.8.0  (2026-07-07)"
+Public Const VER As String = "2.10.0  (2026-07-23)"
 
 Public Const SETUP_SHEET As String = "Property Setup"
 Public Const BAR_GREY    As Long = 14277081     ' RGB(217,217,217)
