@@ -117,7 +117,11 @@ Public Sub RefreshMTMSheet()
     ' time BuildPendingSection runs.
     Dim allMarketRent As Object: Set allMarketRent = CreateObject("Scripting.Dictionary")
     allMarketRent.CompareMode = 1
-    Set mtmDict = ReadYardiMTM(cfg, yardiWB, mtmRecs, allMarketRent)
+    ' allActualRent - same treatment as allMarketRent above, but for
+    ' Current Rent (see BuildPendingSection).
+    Dim allActualRent As Object: Set allActualRent = CreateObject("Scripting.Dictionary")
+    allActualRent.CompareMode = 1
+    Set mtmDict = ReadYardiMTM(cfg, yardiWB, mtmRecs, allMarketRent, allActualRent)
     yardiWB.Close False
     Set yardiWB = Nothing
 
@@ -133,7 +137,7 @@ Public Sub RefreshMTMSheet()
 
     FormatMTMSheet ws, cfg
     WriteHeaders ws, cfg
-    DoRefreshMTM ws, mtmDict, mtmRecs, anchorDate, allMarketRent
+    DoRefreshMTM ws, mtmDict, mtmRecs, anchorDate, allMarketRent, allActualRent
     EnsureMTMButtons
 
     Application.Calculation = xlCalculationAutomatic
@@ -584,7 +588,7 @@ End Function
 '  leave it stranded at the wrong offset.
 ' ----------------------------------------------------------------
 Private Sub DoRefreshMTM(ws As Worksheet, mtmDict As Object, mtmRecs() As MTMUnitRec, anchorDate As Date, _
-                          allMarketRent As Object)
+                          allMarketRent As Object, allActualRent As Object)
     ' Unwrap any live Table before the full-row delete below - deleting
     ' rows out from under a live ListObject down to zero data rows is
     ' an unsupported operation. .Unlist preserves all cell values/formatting.
@@ -690,7 +694,7 @@ NextSnapRow:
     ' Pending is rebuilt from scratch every refresh - the authoritative
     ' source of truth, so units no longer marked "MTM" on a windowed
     ' month sheet simply disappear from it.
-    BuildPendingSection ws, anchorDate, pendSnapshot, allMarketRent, mtmDict
+    BuildPendingSection ws, anchorDate, pendSnapshot, allMarketRent, allActualRent, mtmDict
 End Sub
 
 ' ----------------------------------------------------------------
@@ -1117,7 +1121,6 @@ Private Sub WritePendingDataRow(ws As Worksheet, r As Long, unitNum As String, r
     Dim srcMonth As Long, srcYear As Long
     If modSheetUtils.ParseMonthSheet(sourceSheetName, srcMonth, srcYear) Then
         ws.Cells(r, 5).Value = DateSerial(srcYear, srcMonth, 1)
-        ws.Cells(r, 5).NumberFormat = "mmm-yy;@"
     Else
         ws.Cells(r, 5).Value = sourceSheetName
     End If
@@ -1146,6 +1149,7 @@ Private Sub WritePendingDataRow(ws As Worksheet, r As Long, unitNum As String, r
         .VerticalAlignment = xlCenter
     End With
     ws.Cells(r, 4).NumberFormat = "$#,##0"
+    ws.Cells(r, 5).NumberFormat = "mmm-yy;@"
     ws.Cells(r, 6).NumberFormat = "mm/dd/yy;@"
     ws.Cells(r, 7).NumberFormat = "$#,##0"
     ws.Cells(r, 8).NumberFormat = "$#,##0"
@@ -1291,6 +1295,11 @@ End Sub
 '  the Rent Roll this time (e.g. a name/unit mismatch), rather than going
 '  blank.
 '
+'  Col D (Current Rent) gets the same treatment via allActualRent - a
+'  fresh Rent Roll value wins; falls back to whichever value the fresh
+'  scan / resurrection pass above already produced if the unit isn't
+'  found in the Rent Roll this time, rather than going blank.
+'
 '  A unit whose only windowed sheet fell out of the 3-month scan (the
 '  anchor only advances on a formal monthly import, so a unit freshly
 '  marked "MTM" this month before that month's import runs can otherwise
@@ -1300,7 +1309,7 @@ End Sub
 '  latestStatus) removes it.
 ' ----------------------------------------------------------------
 Private Sub BuildPendingSection(ws As Worksheet, anchorDate As Date, pendSnapshot As Object, _
-                                  allMarketRent As Object, mtmDict As Object)
+                                  allMarketRent As Object, allActualRent As Object, mtmDict As Object)
     DeletePendingBlock ws
 
     Dim divRow As Long: divRow = FindConfirmedLastRow(ws) + 2
@@ -1441,6 +1450,16 @@ NextSnapKey:
             mrToUse = psArr(2)
         End If
 
+        ' Current Rent: fresh Rent Roll value wins; otherwise falls back to
+        ' whatever already supplied Current Rent before this lookup existed
+        ' (rowArr(3) - the fresh scan's value off the month sheet, or the
+        ' pre-rebuild snapshot's carried-forward value for a resurrected
+        ' unit). Reset every iteration for the same reason as mrToUse above.
+        Dim crToUse As Variant: crToUse = rowArr(3)
+        If allActualRent.Exists(uKey) Then
+            crToUse = allActualRent(uKey)
+        End If
+
         ' Keep/Lock: carried forward from the pre-rebuild snapshot if this
         ' unit had one, otherwise defaults to unchecked (also reset every
         ' iteration for the same reason as mrToUse above).
@@ -1450,10 +1469,10 @@ NextSnapKey:
         End If
 
         If hasSnapPend Then
-            WritePendingDataRow ws, writeR, uKey, CStr(rowArr(1)), CStr(rowArr(2)), rowArr(3), CStr(rowArr(4)), _
+            WritePendingDataRow ws, writeR, uKey, CStr(rowArr(1)), CStr(rowArr(2)), crToUse, CStr(rowArr(4)), _
                                  psArr(0), psArr(1), mrToUse, psArr(3), keepLockToUse
         Else
-            WritePendingDataRow ws, writeR, uKey, CStr(rowArr(1)), CStr(rowArr(2)), rowArr(3), CStr(rowArr(4)), _
+            WritePendingDataRow ws, writeR, uKey, CStr(rowArr(1)), CStr(rowArr(2)), crToUse, CStr(rowArr(4)), _
                                  , , mrToUse, , keepLockToUse
         End If
         writeR = writeR + 1

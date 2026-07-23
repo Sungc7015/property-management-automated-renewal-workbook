@@ -463,10 +463,17 @@ End Sub
 '                   Rent for Pending (Manual) units, which by definition
 '                   aren't MTM in Yardi yet. Caller must set its
 '                   CompareMode before passing it in.
+'
+'                   allActualRent (optional, ByRef) - same treatment as
+'                   allMarketRent above, but for Current (Actual) Rent.
+'                   Used by modMTM.BuildPendingSection to look up a fresh
+'                   Current Rent for Pending (Manual) units. Caller must
+'                   set its CompareMode before passing it in.
 ' ----------------------------------------------------------------
 Public Function ReadYardiMTM(cfg As PropConfig, wb As Workbook, _
                              recs() As MTMUnitRec, _
-                             Optional allMarketRent As Object) As Object
+                             Optional allMarketRent As Object, _
+                             Optional allActualRent As Object) As Object
     Dim dict As Object: Set dict = CreateObject("Scripting.Dictionary")
     dict.CompareMode = 1   ' vbTextCompare
     ReDim recs(0)
@@ -514,6 +521,12 @@ Public Function ReadYardiMTM(cfg As PropConfig, wb As Workbook, _
             If IsNumeric(mrRaw) Then
                 If Not allMarketRent.Exists(u) Then allMarketRent.Add u, CDbl(mrRaw)
             End If
+        End If
+
+        ' Same treatment for Current (Actual) Rent - actRaw is already
+        ' validated numeric and > 0 above.
+        If Not (allActualRent Is Nothing) Then
+            If Not allActualRent.Exists(u) Then allActualRent.Add u, CDbl(actRaw)
         End If
 
         ' Keep only past-date or non-date expiry (opposite of ReadYardi).
